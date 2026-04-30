@@ -230,6 +230,15 @@ export function ProgressTracker() {
   }
 
   async function handleDeleteEntry(entryId) {
+    const entry = entries.find((savedEntry) => savedEntry.id === entryId);
+    const confirmed = window.confirm(
+      `Delete the entry from ${entry?.date || 'this date'}?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     setError('');
 
     try {
