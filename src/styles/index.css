@@ -18,6 +18,10 @@
   #root {
     @apply min-h-screen;
   }
+
+  :where(a[href], button:not(:disabled), select:not(:disabled), summary) {
+    cursor: pointer;
+  }
 }
 
 @layer components {
