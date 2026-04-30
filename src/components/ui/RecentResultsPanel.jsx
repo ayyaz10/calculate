@@ -17,6 +17,7 @@ export function RecentResultsPanel({
   entries,
   emptyMessage = 'Your saved calculations will appear here.',
   onRemoveEntry,
+  onRequestRemoveEntry,
   isLoading = false,
   error = '',
 }) {
@@ -66,15 +67,11 @@ export function RecentResultsPanel({
                   {onRemoveEntry ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        const confirmed = window.confirm(
-                          `Delete saved calculation: ${entry.summary}?`,
-                        );
-
-                        if (confirmed) {
-                          onRemoveEntry(entry.id);
-                        }
-                      }}
+                      onClick={() =>
+                        onRequestRemoveEntry
+                          ? onRequestRemoveEntry(entry)
+                          : onRemoveEntry(entry.id)
+                      }
                       aria-label={`Remove saved result: ${entry.summary}`}
                       className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-black bg-white text-lg font-bold leading-none text-black shadow-[3px_3px_0_#000] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0_#000] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-black/15"
                     >

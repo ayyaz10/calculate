@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { ConfirmDialog } from '../../../components/ui/ConfirmDialog';
 import { RecentResultsPanel } from '../../../components/ui/RecentResultsPanel';
 import { InputField } from '../../../components/ui/InputField';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { ResultPanel } from '../../../components/ui/ResultPanel';
+import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
 import { useRecentResults } from '../useRecentResults';
 import {
   buildResultSummary,
@@ -12,6 +14,7 @@ import {
 } from './calorieMath';
 
 export function CalorieCalculator() {
+  const { confirm, dialog } = useConfirmDialog();
   const [formValues, setFormValues] = useState(createEmptyCalorieForm);
   const [errors, setErrors] = useState({});
   const [result, setResult] = useState(null);
@@ -64,6 +67,18 @@ export function CalorieCalculator() {
       });
     }
   };
+
+  async function handleRemoveResult(entry) {
+    const confirmed = await confirm({
+      title: 'Delete saved calculation?',
+      message: entry.summary,
+      confirmLabel: 'Delete',
+    });
+
+    if (confirmed) {
+      removeResult(entry.id);
+    }
+  }
 
   return (
     <div className="grid gap-6">
@@ -119,9 +134,11 @@ export function CalorieCalculator() {
         entries={recentResults}
         emptyMessage="Your calorie calculations will appear here after you save a result with Calculate."
         onRemoveEntry={removeResult}
+        onRequestRemoveEntry={handleRemoveResult}
         isLoading={isLoadingResults}
         error={resultsError}
       />
+      <ConfirmDialog isOpen={Boolean(dialog)} {...dialog} />
     </div>
   );
 }

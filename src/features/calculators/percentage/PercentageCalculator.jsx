@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { InputField } from '../../../components/ui/InputField';
+import { ConfirmDialog } from '../../../components/ui/ConfirmDialog';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { RecentResultsPanel } from '../../../components/ui/RecentResultsPanel';
+import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
 import { useRecentResults } from '../useRecentResults';
 import {
   buildPercentageResult,
@@ -11,6 +13,7 @@ import {
 } from './percentageMath';
 
 export function PercentageCalculator() {
+  const { confirm, dialog } = useConfirmDialog();
   const [formValues, setFormValues] = useState(createEmptyPercentageForm);
   const [errors, setErrors] = useState({});
   const [result, setResult] = useState(null);
@@ -56,6 +59,18 @@ export function PercentageCalculator() {
       });
     }
   };
+
+  async function handleRemoveResult(entry) {
+    const confirmed = await confirm({
+      title: 'Delete saved calculation?',
+      message: entry.summary,
+      confirmLabel: 'Delete',
+    });
+
+    if (confirmed) {
+      removeResult(entry.id);
+    }
+  }
 
   return (
     <div className="grid gap-6">
@@ -109,9 +124,11 @@ export function PercentageCalculator() {
         entries={recentResults}
         emptyMessage="Your percentage calculations will appear here after you save a result with Calculate."
         onRemoveEntry={removeResult}
+        onRequestRemoveEntry={handleRemoveResult}
         isLoading={isLoadingResults}
         error={resultsError}
       />
+      <ConfirmDialog isOpen={Boolean(dialog)} {...dialog} />
     </div>
   );
 }

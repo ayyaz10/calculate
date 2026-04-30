@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageShell } from '../../components/layout/PageShell';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useAuth } from '../../contexts/AuthContext';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { createEntry, deleteEntry, getEntries, subscribeToEntries, updateEntry } from '../../services/entryService';
 import { createGoal, deleteGoal, getGoals } from '../../services/goalService';
 import { EntryForm } from './EntryForm';
@@ -114,6 +116,7 @@ function EntryHistory({ goal, entries, onEditEntry, onDeleteEntry }) {
 
 export function ProgressTracker() {
   const { user } = useAuth();
+  const { confirm, dialog } = useConfirmDialog();
   const [goals, setGoals] = useState([]);
   const [entries, setEntries] = useState([]);
   const [selectedGoalId, setSelectedGoalId] = useState('');
@@ -231,9 +234,11 @@ export function ProgressTracker() {
 
   async function handleDeleteEntry(entryId) {
     const entry = entries.find((savedEntry) => savedEntry.id === entryId);
-    const confirmed = window.confirm(
-      `Delete the entry from ${entry?.date || 'this date'}?`,
-    );
+    const confirmed = await confirm({
+      title: 'Delete daily entry?',
+      message: `This will remove the entry from ${entry?.date || 'this date'}.`,
+      confirmLabel: 'Delete',
+    });
 
     if (!confirmed) {
       return;
@@ -256,9 +261,11 @@ export function ProgressTracker() {
 
   async function handleDeleteGoal(goalId) {
     const goal = goals.find((savedGoal) => savedGoal.id === goalId);
-    const confirmed = window.confirm(
-      `Delete "${goal?.title || 'this goal'}" and its entries?`,
-    );
+    const confirmed = await confirm({
+      title: 'Delete goal?',
+      message: `This will remove "${goal?.title || 'this goal'}" and every entry saved under it.`,
+      confirmLabel: 'Delete',
+    });
 
     if (!confirmed) {
       return;
@@ -403,6 +410,7 @@ export function ProgressTracker() {
             <GoalStats goal={selectedGoal} entries={selectedGoalEntries} />
           </div>
         ) : null}
+        <ConfirmDialog isOpen={Boolean(dialog)} {...dialog} />
       </section>
     </PageShell>
   );

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { ConfirmDialog } from '../../../components/ui/ConfirmDialog';
 import { InputField } from '../../../components/ui/InputField';
 import { PrimaryButton } from '../../../components/ui/PrimaryButton';
 import { RecentResultsPanel } from '../../../components/ui/RecentResultsPanel';
 import { SelectField } from '../../../components/ui/SelectField';
+import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
 import { useRecentResults } from '../useRecentResults';
 import { useMassUnitPreferences } from './useMassUnitPreferences';
 import {
@@ -80,6 +82,7 @@ function MassResultPanel({ result }) {
 }
 
 export function MassCalculator() {
+  const { confirm, dialog } = useConfirmDialog();
   const {
     preferredUnits,
     rememberUnits,
@@ -153,6 +156,18 @@ export function MassCalculator() {
       });
     }
   };
+
+  async function handleRemoveResult(entry) {
+    const confirmed = await confirm({
+      title: 'Delete saved conversion?',
+      message: entry.summary,
+      confirmLabel: 'Delete',
+    });
+
+    if (confirmed) {
+      removeResult(entry.id);
+    }
+  }
 
   return (
     <div className="grid gap-6">
@@ -228,9 +243,11 @@ export function MassCalculator() {
         entries={recentResults}
         emptyMessage="Your mass conversions will appear here after you save a result with Calculate."
         onRemoveEntry={removeResult}
+        onRequestRemoveEntry={handleRemoveResult}
         isLoading={isLoadingResults}
         error={resultsError || preferenceError}
       />
+      <ConfirmDialog isOpen={Boolean(dialog)} {...dialog} />
     </div>
   );
 }
