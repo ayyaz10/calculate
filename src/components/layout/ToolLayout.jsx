@@ -7,7 +7,7 @@ export function ToolLayout({ activeCalculator, calculators, children }) {
         <nav className="overflow-x-auto">
           <div className="flex min-w-max gap-2">
             <a
-              href="#/"
+              href="#/board"
               className="inline-flex items-center rounded-full border border-black/85 bg-[#fffdf8] px-3.5 py-1.5 text-sm font-semibold tracking-[-0.02em] text-black transition hover:bg-white"
             >
               C Board

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppBoard } from '../components/pages/AppBoard';
 import { AuthPage } from '../components/pages/AuthPage';
+import { LandingPage } from '../components/pages/LandingPage';
 import { NotFoundPage } from '../components/pages/NotFoundPage';
 import { ToolLayout } from '../components/layout/ToolLayout';
 import { useAuth } from '../contexts/AuthContext';
@@ -47,6 +48,10 @@ export default function App() {
     };
   }, [user?.id]);
 
+  if (route === '/') {
+    return <LandingPage isAuthenticated={!isLoading && isAuthenticated} />;
+  }
+
   if (isLoading) {
     return (
       <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
@@ -55,6 +60,10 @@ export default function App() {
         </section>
       </main>
     );
+  }
+
+  if (route === '/login') {
+    return <AuthPage />;
   }
 
   if (!isAuthenticated) {
@@ -87,7 +96,7 @@ export default function App() {
     );
   }
 
-  if (route === '/') {
+  if (route === '/board') {
     return <AppBoard calculators={calculators} />;
   }
 

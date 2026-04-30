@@ -19,7 +19,7 @@ const appSections = [
     description:
       'Create goals, log daily metrics, and watch your numbers move over time.',
     color: '#9fe3ff',
-    countLabel: 'Local storage',
+    countLabel: 'Goal dashboard',
   },
 ];
 

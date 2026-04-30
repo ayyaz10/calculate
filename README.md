@@ -67,6 +67,8 @@ src/
   components/
     layout/
     pages/
+      AuthPage.jsx
+      LandingPage.jsx
       AppBoard.jsx
       NotFoundPage.jsx
     ui/
@@ -91,7 +93,9 @@ src/
 
 ## Routes
 
-- `#/` Main app board
+- `#/` Introduction page
+- `#/login` Login and signup
+- `#/board` Main app board
 - `#/calculators` Calculator Tools
 - `#/calculators/percentage` Percentage Calculator
 - `#/calculators/calorie` Calorie Calculator
