@@ -3,6 +3,26 @@ import { isSupabaseConfigured, requireSupabase, supabase } from '../lib/supabase
 import { getCurrentProfile, normalizeUsername, resolveLoginEmail } from '../services/profileService';
 
 const AuthContext = createContext(null);
+const AUTH_BOOT_TIMEOUT_MS = 8000;
+const PROFILE_TIMEOUT_MS = 5000;
+
+function withTimeout(promise, timeoutMs, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
@@ -11,7 +31,7 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState('');
 
-  async function syncProfile(nextSession) {
+  function applySession(nextSession) {
     const nextUser = nextSession?.user ?? null;
 
     setSession(nextSession);
@@ -22,16 +42,23 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    try {
-      const nextProfile = await getCurrentProfile();
-      setProfile(nextProfile ?? {
-        username: nextUser.user_metadata?.username ?? nextUser.email,
+    const fallbackProfile = {
+      username: nextUser.user_metadata?.username ?? nextUser.email,
+    };
+
+    setProfile(fallbackProfile);
+
+    withTimeout(
+      getCurrentProfile(),
+      PROFILE_TIMEOUT_MS,
+      'Profile lookup timed out.',
+    )
+      .then((nextProfile) => {
+        setProfile(nextProfile ?? fallbackProfile);
+      })
+      .catch(() => {
+        setProfile(fallbackProfile);
       });
-    } catch {
-      setProfile({
-        username: nextUser.user_metadata?.username ?? nextUser.email,
-      });
-    }
   }
 
   useEffect(() => {
@@ -43,22 +70,42 @@ export function AuthProvider({ children }) {
 
     let isMounted = true;
 
-    supabase.auth.getSession().then(async ({ data, error }) => {
-      if (!isMounted) {
-        return;
-      }
+    withTimeout(
+      supabase.auth.getSession(),
+      AUTH_BOOT_TIMEOUT_MS,
+      'Saved session expired. Please log in again.',
+    )
+      .then(({ data, error }) => {
+        if (!isMounted) {
+          return;
+        }
 
-      if (error) {
+        if (error) {
+          setAuthError(error.message);
+        }
+
+        applySession(data.session);
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setSession(null);
+        setUser(null);
+        setProfile(null);
         setAuthError(error.message);
-      }
-
-      await syncProfile(data.session);
-      setIsLoading(false);
-    });
+        supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, nextSession) => {
-        await syncProfile(nextSession);
+      (_event, nextSession) => {
+        applySession(nextSession);
         setIsLoading(false);
         setAuthError('');
       },
