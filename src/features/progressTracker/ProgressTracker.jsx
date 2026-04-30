@@ -10,6 +10,12 @@ import { GoalList } from './GoalList';
 import { GoalStats } from './GoalStats';
 import { metricColors } from './progressTrackerStorage';
 
+const trackerViews = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'new-tracker', label: 'New Tracker' },
+  { id: 'daily-log', label: 'Daily Log' },
+];
+
 function sortEntriesNewestFirst(entries) {
   return [...entries].sort((a, b) => {
     const dateCompare = b.date.localeCompare(a.date);
@@ -112,6 +118,7 @@ export function ProgressTracker() {
   const [entries, setEntries] = useState([]);
   const [selectedGoalId, setSelectedGoalId] = useState('');
   const [editingEntry, setEditingEntry] = useState(null);
+  const [activeView, setActiveView] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -184,6 +191,7 @@ export function ProgressTracker() {
       const savedGoal = await createGoal(goal);
       setGoals((current) => [savedGoal, ...current]);
       setSelectedGoalId(savedGoal.id);
+      setActiveView('daily-log');
     } catch (createError) {
       setError(createError.message);
       throw createError;
@@ -206,6 +214,7 @@ export function ProgressTracker() {
         ...current.filter((currentEntry) => currentEntry.id !== savedEntry.id),
       ]);
       setEditingEntry(null);
+      setActiveView('dashboard');
     } catch (saveError) {
       setError(saveError.message);
       throw saveError;
@@ -217,6 +226,7 @@ export function ProgressTracker() {
   function handleEditEntry(entry) {
     setSelectedGoalId(entry.goalId);
     setEditingEntry(entry);
+    setActiveView('daily-log');
   }
 
   async function handleDeleteEntry(entryId) {
@@ -301,27 +311,71 @@ export function ProgressTracker() {
           </p>
         ) : null}
 
+        <div className="mt-7 overflow-x-auto">
+          <div className="flex min-w-max gap-2">
+            {trackerViews.map((view) => {
+              const isActive = activeView === view.id;
+
+              return (
+                <button
+                  key={view.id}
+                  type="button"
+                  onClick={() => setActiveView(view.id)}
+                  className={`inline-flex items-center rounded-full border border-black/85 px-3.5 py-1.5 text-sm font-semibold tracking-[-0.02em] text-black transition ${
+                    isActive
+                      ? 'bg-[#c5ff6f]'
+                      : 'bg-[#fffdf8] hover:bg-white'
+                  }`}
+                >
+                  {view.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {isLoading ? (
           <div className="mt-8 rounded-[1.75rem] border-2 border-black bg-[#fffdf8] p-6 text-lg font-bold text-black">
             Loading tracker data...
           </div>
-        ) : (
-          <div className="mt-8 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="grid gap-5">
-            <GoalForm onCreateGoal={handleCreateGoal} isSaving={isSaving} />
-            <GoalList
-              goals={goals}
-              selectedGoalId={selectedGoalId}
-              entries={entries}
-              onSelectGoal={(goalId) => {
-                setSelectedGoalId(goalId);
-                setEditingEntry(null);
-              }}
-              onDeleteGoal={handleDeleteGoal}
-            />
-          </div>
+        ) : null}
 
-          <div className="grid gap-5">
+        {!isLoading && activeView === 'dashboard' ? (
+          <>
+            <div className="mt-8 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+              <GoalList
+                goals={goals}
+                selectedGoalId={selectedGoalId}
+                entries={entries}
+                onSelectGoal={(goalId) => {
+                  setSelectedGoalId(goalId);
+                  setEditingEntry(null);
+                }}
+                onDeleteGoal={handleDeleteGoal}
+              />
+              <GoalStats goal={selectedGoal} entries={selectedGoalEntries} />
+            </div>
+
+            <div className="mt-5 grid gap-5">
+              <GoalChart goal={selectedGoal} entries={selectedGoalEntries} />
+              <EntryHistory
+                goal={selectedGoal}
+                entries={selectedGoalEntries}
+                onEditEntry={handleEditEntry}
+                onDeleteEntry={handleDeleteEntry}
+              />
+            </div>
+          </>
+        ) : null}
+
+        {!isLoading && activeView === 'new-tracker' ? (
+          <div className="mt-8 max-w-3xl">
+            <GoalForm onCreateGoal={handleCreateGoal} isSaving={isSaving} />
+          </div>
+        ) : null}
+
+        {!isLoading && activeView === 'daily-log' ? (
+          <div className="mt-8 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
             <EntryForm
               goals={goals}
               selectedGoalId={selectedGoalId}
@@ -331,23 +385,13 @@ export function ProgressTracker() {
               }}
               editingEntry={editingEntry}
               onSaveEntry={handleSaveEntry}
-              onCancelEdit={() => setEditingEntry(null)}
+              onCancelEdit={() => {
+                setEditingEntry(null);
+                setActiveView('dashboard');
+              }}
               isSaving={isSaving}
             />
             <GoalStats goal={selectedGoal} entries={selectedGoalEntries} />
-          </div>
-          </div>
-        )}
-
-        {!isLoading ? (
-          <div className="mt-5 grid gap-5">
-            <GoalChart goal={selectedGoal} entries={selectedGoalEntries} />
-            <EntryHistory
-              goal={selectedGoal}
-              entries={selectedGoalEntries}
-              onEditEntry={handleEditEntry}
-              onDeleteEntry={handleDeleteEntry}
-            />
           </div>
         ) : null}
       </section>
