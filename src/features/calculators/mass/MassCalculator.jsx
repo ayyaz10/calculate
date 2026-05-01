@@ -1,25 +1,25 @@
-import { useEffect, useState } from 'react';
-import { ConfirmDialog } from '../../../components/ui/ConfirmDialog';
-import { InputField } from '../../../components/ui/InputField';
-import { PrimaryButton } from '../../../components/ui/PrimaryButton';
-import { RecentResultsPanel } from '../../../components/ui/RecentResultsPanel';
-import { SelectField } from '../../../components/ui/SelectField';
-import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
-import { useRecentResults } from '../useRecentResults';
-import { useMassUnitPreferences } from './useMassUnitPreferences';
+import { useEffect, useState } from "react";
+import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import { InputField } from "../../../components/ui/InputField";
+import { PrimaryButton } from "../../../components/ui/PrimaryButton";
+import { RecentResultsPanel } from "../../../components/ui/RecentResultsPanel";
+import { SelectField } from "../../../components/ui/SelectField";
+import { useConfirmDialog } from "../../../hooks/useConfirmDialog";
+import { useRecentResults } from "../useRecentResults";
+import { useMassUnitPreferences } from "./useMassUnitPreferences";
 import {
   buildMassResult,
   createEmptyMassForm,
   massUnitOptions,
   validateMassForm,
-} from './massMath';
+} from "./massMath";
 
-function MassResultPanel({ result }) {
+function MassResultPanel({ result, className = "" }) {
   if (!result) {
     return (
       <aside
         aria-live="polite"
-        className="rounded-[2rem] border-2 border-black bg-[#ff90e8] p-6 text-black sm:p-7"
+        className={`rounded-[2rem] border-2 border-black bg-[#ff90e8] p-6 text-black sm:p-7 ${className}`}
       >
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-black/60">
           Result
@@ -28,9 +28,9 @@ function MassResultPanel({ result }) {
         <p className="mt-6 text-6xl font-bold tracking-[-0.06em] text-black sm:text-7xl">
           --
         </p>
-        <p className="mt-3 text-sm font-bold uppercase tracking-[0.12em] text-black/65">
+        {/* <p className="mt-3 text-sm font-bold uppercase tracking-[0.12em] text-black/65">
           Choose values
-        </p>
+        </p> */}
       </aside>
     );
   }
@@ -38,7 +38,7 @@ function MassResultPanel({ result }) {
   return (
     <aside
       aria-live="polite"
-      className="rounded-[2rem] border-2 border-black bg-[#ff90e8] p-6 text-black sm:p-7"
+      className={`rounded-[2rem] border-2 border-black bg-[#ff90e8] p-6 text-black sm:p-7 ${className}`}
     >
       <p className="text-xs font-bold uppercase tracking-[0.18em] text-black/60">
         Result
@@ -88,7 +88,9 @@ export function MassCalculator() {
     rememberUnits,
     error: preferenceError,
   } = useMassUnitPreferences();
-  const [formValues, setFormValues] = useState(() => createEmptyMassForm(preferredUnits));
+  const [formValues, setFormValues] = useState(() =>
+    createEmptyMassForm(preferredUnits),
+  );
   const [errors, setErrors] = useState({});
   const [result, setResult] = useState(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
@@ -98,7 +100,7 @@ export function MassCalculator() {
     error: resultsError,
     saveResult,
     removeResult,
-  } = useRecentResults('mass');
+  } = useRecentResults("mass");
 
   useEffect(() => {
     if (hasAttemptedSubmit) {
@@ -159,9 +161,9 @@ export function MassCalculator() {
 
   async function handleRemoveResult(entry) {
     const confirmed = await confirm({
-      title: 'Delete saved conversion?',
+      title: "Delete saved conversion?",
       message: entry.summary,
-      confirmLabel: 'Delete',
+      confirmLabel: "Delete",
     });
 
     if (confirmed) {
@@ -175,7 +177,7 @@ export function MassCalculator() {
         <form
           noValidate
           onSubmit={handleSubmit}
-          className="rounded-[2rem] border-2 border-black bg-[#fffdf8] p-5 sm:p-6"
+          className="order-2 rounded-[2rem] border-2 border-black bg-[#fffdf8] p-5 sm:p-6 lg:order-1"
         >
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -185,12 +187,6 @@ export function MassCalculator() {
               <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-black">
                 Convert mass
               </h2>
-              <p className="mt-2 text-sm font-medium leading-6 text-black/60">
-                Pick the amount and the units you want to convert between.
-              </p>
-              <p className="mt-2 text-sm font-medium leading-6 text-black/50">
-                Your most-used from and to units are preselected automatically.
-              </p>
             </div>
           </div>
 
@@ -236,7 +232,7 @@ export function MassCalculator() {
           </div>
         </form>
 
-        <MassResultPanel result={result} />
+        <MassResultPanel result={result} className="order-1 lg:order-2" />
       </div>
 
       <RecentResultsPanel

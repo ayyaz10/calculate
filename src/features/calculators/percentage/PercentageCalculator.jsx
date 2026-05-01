@@ -78,7 +78,7 @@ export function PercentageCalculator() {
         <form
           noValidate
           onSubmit={handleSubmit}
-          className="rounded-[1.75rem] border-2 border-black bg-[#fffdf8] p-5 sm:p-6"
+          className="order-2 rounded-[1.75rem] border-2 border-black bg-[#fffdf8] p-5 sm:p-6 lg:order-1"
         >
           <div className="grid gap-5">
             {percentageFieldConfig.map((field) => (
@@ -102,7 +102,7 @@ export function PercentageCalculator() {
 
         <aside
           aria-live="polite"
-          className="rounded-[1.75rem] border-2 border-black bg-[#ff90e8] p-5 text-black sm:p-6"
+          className="order-1 rounded-[1.75rem] border-2 border-black bg-[#ff90e8] p-5 text-black sm:p-6 lg:order-2"
         >
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-black/60">
             Result

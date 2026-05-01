@@ -86,7 +86,7 @@ export function CalorieCalculator() {
         <form
           noValidate
           onSubmit={handleSubmit}
-          className="rounded-[2rem] border-2 border-black bg-[#fffdf8] p-5 sm:p-6"
+          className="order-2 rounded-[2rem] border-2 border-black bg-[#fffdf8] p-5 sm:p-6 lg:order-1"
         >
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -127,7 +127,7 @@ export function CalorieCalculator() {
           </div>
         </form>
 
-        <ResultPanel result={result} />
+        <ResultPanel result={result} className="order-1 lg:order-2" />
       </div>
 
       <RecentResultsPanel

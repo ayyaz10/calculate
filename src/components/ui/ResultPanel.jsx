@@ -1,9 +1,9 @@
-export function ResultPanel({ result }) {
+export function ResultPanel({ result, className = '' }) {
   if (!result) {
     return (
       <aside
         aria-live="polite"
-        className="rounded-[2rem] border-2 border-black bg-[#ff90e8] p-6 text-black sm:p-7"
+        className={`rounded-[2rem] border-2 border-black bg-[#ff90e8] p-6 text-black sm:p-7 ${className}`}
       >
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-black/60">
           Result
@@ -22,7 +22,7 @@ export function ResultPanel({ result }) {
   return (
     <aside
       aria-live="polite"
-      className="rounded-[2rem] border-2 border-black bg-[#ff90e8] p-6 text-black sm:p-7"
+      className={`rounded-[2rem] border-2 border-black bg-[#ff90e8] p-6 text-black sm:p-7 ${className}`}
     >
       <p className="text-xs font-bold uppercase tracking-[0.18em] text-black/60">
         Result
