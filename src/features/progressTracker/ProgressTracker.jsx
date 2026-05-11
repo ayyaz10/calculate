@@ -5,13 +5,20 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useAuth } from '../../contexts/AuthContext';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { createEntry, deleteEntry, getEntries, subscribeToEntries, updateEntry } from '../../services/entryService';
-import { createGoal, deleteGoal, getGoals } from '../../services/goalService';
+import {
+  createGoal,
+  deleteGoal,
+  getGoals,
+  updateGoalDetails,
+  updateGoalSortOrder,
+} from '../../services/goalService';
 import { EntryForm } from './EntryForm';
+import { EntryList } from './EntryList';
 import { GoalChart } from './GoalChart';
 import { GoalForm } from './GoalForm';
 import { GoalList } from './GoalList';
 import { GoalStats } from './GoalStats';
-import { metricColors } from './progressTrackerStorage';
+import { GOAL_ORDER_STORAGE_KEY } from './progressTrackerStorage';
 import { getTrackerErrorMessage } from './trackerErrorMessages';
 
 const trackerViews = [
@@ -19,100 +26,54 @@ const trackerViews = [
   { id: 'new-tracker', label: 'New Tracker' },
 ];
 
-function sortEntriesNewestFirst(entries) {
-  return [...entries].sort((a, b) => {
-    const dateCompare = b.date.localeCompare(a.date);
-    return dateCompare || b.createdAt.localeCompare(a.createdAt);
-  });
+function readLocalGoalOrder() {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(GOAL_ORDER_STORAGE_KEY);
+    const parsedValue = storedValue ? JSON.parse(storedValue) : [];
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch {
+    return [];
+  }
 }
 
-function EntryHistory({ goal, entries, onEditEntry, onDeleteEntry }) {
-  return (
-    <section className="rounded-[1.75rem] border-2 border-black bg-[#9fe3ff] p-5 sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-black/55">
-            History
-          </p>
-          <h2 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-black">
-            Past entries
-          </h2>
-        </div>
-        <span className="rounded-full border-2 border-black bg-white px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-black">
-          Edit ready
-        </span>
-      </div>
+function saveLocalGoalOrder(goals) {
+  if (typeof window === 'undefined') {
+    return;
+  }
 
-      {!goal ? (
-        <div className="mt-5 rounded-[1.35rem] border-2 border-black bg-white px-4 py-5 text-sm font-bold leading-6 text-black/70">
-          Select a goal to review entries.
-        </div>
-      ) : entries.length === 0 ? (
-        <div className="mt-5 rounded-[1.35rem] border-2 border-black bg-white px-4 py-5 text-sm font-bold leading-6 text-black/70">
-          No entries for this goal yet.
-        </div>
-      ) : (
-        <div className="mt-5 grid gap-3">
-          {sortEntriesNewestFirst(entries).map((entry) => (
-            <article
-              key={entry.id}
-              className="rounded-[1.35rem] border-2 border-black bg-[#fffdf8] p-4"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-black/55">
-                    {entry.date}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {goal.metrics
-                      .filter((metric) =>
-                        Number.isFinite(entry.values?.[metric.id]),
-                      )
-                      .map((metric) => (
-                        <span
-                          key={metric.id}
-                          className="rounded-full border-2 border-black px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black"
-                          style={{
-                            backgroundColor:
-                              metricColors[metric.colorKey] || '#fff',
-                          }}
-                        >
-                          {metric.name}: {entry.values[metric.id]}
-                          {metric.unit ? ` ${metric.unit}` : ''}
-                        </span>
-                      ))}
-                  </div>
-                </div>
-
-                <div className="flex shrink-0 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onEditEntry(entry)}
-                    className="rounded-full border-2 border-black bg-[#c5ff6f] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-black"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteEntry(entry.id)}
-                    className="rounded-full border-2 border-black bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-black"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-
-              {entry.note ? (
-                <p className="mt-4 rounded-[1rem] border-2 border-black bg-white px-3 py-2 text-sm font-semibold leading-6 text-black/70">
-                  {entry.note}
-                </p>
-              ) : null}
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
+  window.localStorage.setItem(
+    GOAL_ORDER_STORAGE_KEY,
+    JSON.stringify(goals.map((goal) => goal.id)),
   );
+}
+
+function applyLocalGoalOrder(goals) {
+  const localOrder = readLocalGoalOrder();
+
+  if (localOrder.length === 0) {
+    return goals;
+  }
+
+  const orderMap = new Map(localOrder.map((goalId, index) => [goalId, index]));
+
+  return [...goals].sort((leftGoal, rightGoal) => {
+    const leftOrder = orderMap.has(leftGoal.id)
+      ? orderMap.get(leftGoal.id)
+      : Number.MAX_SAFE_INTEGER;
+    const rightOrder = orderMap.has(rightGoal.id)
+      ? orderMap.get(rightGoal.id)
+      : Number.MAX_SAFE_INTEGER;
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return (leftGoal.sortOrder ?? 0) - (rightGoal.sortOrder ?? 0);
+  });
 }
 
 export function ProgressTracker() {
@@ -122,6 +83,8 @@ export function ProgressTracker() {
   const [entries, setEntries] = useState([]);
   const [selectedGoalId, setSelectedGoalId] = useState('');
   const [editingEntry, setEditingEntry] = useState(null);
+  const [editingGoal, setEditingGoal] = useState(null);
+  const [isLogPanelOpen, setIsLogPanelOpen] = useState(false);
   const [activeView, setActiveView] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -136,7 +99,7 @@ export function ProgressTracker() {
         getEntries(),
       ]);
 
-      setGoals(savedGoals);
+      setGoals(applyLocalGoalOrder(savedGoals));
       setEntries(savedEntries);
     } catch (loadError) {
       setError(
@@ -183,8 +146,8 @@ export function ProgressTracker() {
       return;
     }
 
-    if (!goals.some((goal) => goal.id === selectedGoalId)) {
-      setSelectedGoalId(goals[0].id);
+    if (selectedGoalId && !goals.some((goal) => goal.id === selectedGoalId)) {
+      setSelectedGoalId('');
     }
   }, [goals, selectedGoalId]);
 
@@ -202,10 +165,13 @@ export function ProgressTracker() {
     setError('');
 
     try {
-      const savedGoal = await createGoal(goal);
+      const savedGoal = await createGoal({
+        ...goal,
+        sortOrder: goals.length,
+      });
       setGoals((current) => [savedGoal, ...current]);
       setSelectedGoalId(savedGoal.id);
-      setActiveView('daily-log');
+      setActiveView('dashboard');
     } catch (createError) {
       setError(
         getTrackerErrorMessage(
@@ -220,13 +186,21 @@ export function ProgressTracker() {
   }
 
   async function handleSaveEntry(entry) {
+    const goal = goals.find((savedGoal) => savedGoal.id === entry.goalId);
     const existingEntry = entries.find((savedEntry) =>
       savedEntry.goalId === entry.goalId
       && savedEntry.date === entry.date
       && savedEntry.id !== editingEntry?.id
     );
 
-    if (!editingEntry && existingEntry) {
+    if (editingEntry && existingEntry && !goal?.allowMultipleEntriesPerDay) {
+      setError(
+        `This tracker only allows one entry on ${entry.date}. Edit that existing entry or choose another date.`,
+      );
+      return false;
+    }
+
+    if (!editingEntry && existingEntry && !goal?.allowMultipleEntriesPerDay) {
       const confirmed = await confirm({
         title: 'Override existing log?',
         message: `This tracker already has a log for ${entry.date}. Saving now will replace that date's values and note.`,
@@ -244,13 +218,16 @@ export function ProgressTracker() {
     try {
       const savedEntry = editingEntry
         ? await updateEntry(entry.id, entry)
-        : await createEntry(entry);
+        : await createEntry(entry, {
+          allowMultipleEntriesPerDay: goal?.allowMultipleEntriesPerDay,
+        });
 
       setEntries((current) => [
         savedEntry,
         ...current.filter((currentEntry) => currentEntry.id !== savedEntry.id),
       ]);
       setEditingEntry(null);
+      setIsLogPanelOpen(false);
       setActiveView('dashboard');
     } catch (saveError) {
       setError(
@@ -268,7 +245,9 @@ export function ProgressTracker() {
   function handleEditEntry(entry) {
     setSelectedGoalId(entry.goalId);
     setEditingEntry(entry);
-    setActiveView('daily-log');
+    setEditingGoal(null);
+    setIsLogPanelOpen(true);
+    setActiveView('dashboard');
   }
 
   async function handleDeleteEntry(entryId) {
@@ -320,6 +299,10 @@ export function ProgressTracker() {
       await deleteGoal(goalId);
       setGoals((current) => current.filter((savedGoal) => savedGoal.id !== goalId));
       setEntries((current) => current.filter((entry) => entry.goalId !== goalId));
+      if (selectedGoalId === goalId) {
+        setSelectedGoalId('');
+        setIsLogPanelOpen(false);
+      }
     } catch (deleteError) {
       setError(
         getTrackerErrorMessage(
@@ -327,6 +310,58 @@ export function ProgressTracker() {
           'Could not delete this tracker. Please try again.',
         ),
       );
+    }
+  }
+
+  async function handleUpdateGoal(goal) {
+    setIsSaving(true);
+    setError('');
+
+    try {
+      const savedGoal = await updateGoalDetails(goal.id, goal);
+      setGoals((current) =>
+        current.map((currentGoal) =>
+          currentGoal.id === savedGoal.id ? savedGoal : currentGoal,
+        ),
+      );
+      setEditingGoal(null);
+    } catch (updateError) {
+      setError(
+        getTrackerErrorMessage(
+          updateError,
+          'Could not update this tracker. Please check the fields and try again.',
+        ),
+      );
+      throw updateError;
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleReorderGoals(nextGoals) {
+    const orderedGoals = nextGoals.map((goal, index) => ({
+      ...goal,
+      sortOrder: index,
+    }));
+
+    setGoals(orderedGoals);
+    setError('');
+
+    try {
+      saveLocalGoalOrder(orderedGoals);
+      const didPersist = await updateGoalSortOrder(
+        orderedGoals.map((goal) => ({
+          id: goal.id,
+          sortOrder: goal.sortOrder,
+        })),
+      );
+
+      if (didPersist === false) {
+        return;
+      }
+    } catch (orderError) {
+      saveLocalGoalOrder(orderedGoals);
+      console.warn('Goal order was saved locally, but could not sync to Supabase.', orderError);
     }
   }
 
@@ -365,8 +400,8 @@ export function ProgressTracker() {
         </h1>
 
         <p className="mt-3 max-w-2xl text-base font-medium leading-7 text-black/70 sm:text-lg">
-          Create a goal, log daily metric values, and compare target, latest,
-          best, average, streak, and trend lines.
+          Create performance, completion, or consistency goals and track each
+          one with the dashboard behavior that fits it.
         </p>
 
         {error ? (
@@ -406,61 +441,107 @@ export function ProgressTracker() {
 
         {!isLoading && activeView === 'dashboard' ? (
           <>
-            <div className="mt-8 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-              <GoalList
-                goals={goals}
-                selectedGoalId={selectedGoalId}
-                entries={entries}
-                onSelectGoal={(goalId) => {
-                  setSelectedGoalId(goalId);
-                  setEditingEntry(null);
-                }}
-                onLogGoal={(goalId) => {
-                  setSelectedGoalId(goalId);
-                  setEditingEntry(null);
-                  setActiveView('daily-log');
-                }}
-                onDeleteGoal={handleDeleteGoal}
-              />
-              <GoalStats goal={selectedGoal} entries={selectedGoalEntries} />
+            <div className="mt-8 grid items-start gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+              {isLogPanelOpen && selectedGoal ? (
+                <div className="grid gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingEntry(null);
+                      setIsLogPanelOpen(false);
+                    }}
+                    className="justify-self-start rounded-full border-2 border-black bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-black shadow-[3px_3px_0_#000]"
+                  >
+                    Back to tracker list
+                  </button>
+                  <EntryForm
+                    goals={goals}
+                    selectedGoalId={selectedGoal.id}
+                    onSelectGoal={() => {}}
+                    editingEntry={editingEntry}
+                    onSaveEntry={handleSaveEntry}
+                    onCancelEdit={() => {
+                      setEditingEntry(null);
+                      setIsLogPanelOpen(false);
+                    }}
+                    hideGoalSelect
+                    isSaving={isSaving}
+                  />
+                </div>
+              ) : (
+                <GoalList
+                  goals={goals}
+                  selectedGoalId={selectedGoalId}
+                  entries={entries}
+                  onSelectGoal={(goalId) => {
+                    setSelectedGoalId(goalId);
+                    setEditingEntry(null);
+                    setEditingGoal(null);
+                    setIsLogPanelOpen(false);
+                  }}
+                  onEditGoal={(goal) => {
+                    setSelectedGoalId(goal.id);
+                    setEditingGoal(goal);
+                    setIsLogPanelOpen(false);
+                  }}
+                  onLogGoal={(goalId) => {
+                    setSelectedGoalId(goalId);
+                    setEditingGoal(null);
+                    setEditingEntry(null);
+                    setIsLogPanelOpen(true);
+                  }}
+                  onReorderGoals={handleReorderGoals}
+                />
+              )}
+              {editingGoal ? (
+                <GoalForm
+                  initialGoal={editingGoal}
+                  onSubmitGoal={handleUpdateGoal}
+                  onCancel={() => setEditingGoal(null)}
+                  isSaving={isSaving}
+                />
+              ) : (
+                <div className="grid gap-3">
+                  <GoalStats goal={selectedGoal} entries={selectedGoalEntries} />
+                  {selectedGoal ? (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingGoal(selectedGoal)}
+                        className="rounded-full border-2 border-black bg-[#9fe3ff] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-black shadow-[3px_3px_0_#000]"
+                      >
+                        Edit goal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteGoal(selectedGoal.id)}
+                        className="rounded-full border-2 border-black bg-[#ffe0de] px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-black shadow-[3px_3px_0_#000] transition hover:bg-[#ffb4ad]"
+                      >
+                        Delete goal
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
 
-            <div className="mt-5 grid gap-5">
-              <GoalChart goal={selectedGoal} entries={selectedGoalEntries} />
-              <EntryHistory
-                goal={selectedGoal}
-                entries={selectedGoalEntries}
-                onEditEntry={handleEditEntry}
-                onDeleteEntry={handleDeleteEntry}
-              />
-            </div>
+            {selectedGoal && !editingGoal && !isLogPanelOpen ? (
+              <div className="mt-5 grid gap-5">
+                <GoalChart goal={selectedGoal} entries={selectedGoalEntries} />
+                <EntryList
+                  goal={selectedGoal}
+                  entries={selectedGoalEntries}
+                  onEditEntry={handleEditEntry}
+                  onDeleteEntry={handleDeleteEntry}
+                />
+              </div>
+            ) : null}
           </>
         ) : null}
 
         {!isLoading && activeView === 'new-tracker' ? (
           <div className="mt-8 max-w-3xl">
             <GoalForm onCreateGoal={handleCreateGoal} isSaving={isSaving} />
-          </div>
-        ) : null}
-
-        {!isLoading && activeView === 'daily-log' ? (
-          <div className="mt-8 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-            <EntryForm
-              goals={goals}
-              selectedGoalId={selectedGoalId}
-              onSelectGoal={(goalId) => {
-                setSelectedGoalId(goalId);
-                setEditingEntry(null);
-              }}
-              editingEntry={editingEntry}
-              onSaveEntry={handleSaveEntry}
-              onCancelEdit={() => {
-                setEditingEntry(null);
-                setActiveView('dashboard');
-              }}
-              isSaving={isSaving}
-            />
-            <GoalStats goal={selectedGoal} entries={selectedGoalEntries} />
           </div>
         ) : null}
         <ConfirmDialog isOpen={Boolean(dialog)} {...dialog} />

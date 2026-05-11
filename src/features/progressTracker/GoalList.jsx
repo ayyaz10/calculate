@@ -1,50 +1,90 @@
-import { formatGoalTarget, goalTypePresets } from './progressTrackerStorage';
+import { useState } from 'react';
 import {
-  getProgressFromStart,
-  getSortedMetricEntries,
+  formatGoalTarget,
+  getGoalType,
+  goalBehaviorTypes,
+  goalTypePresets,
+} from './progressTrackerStorage';
+import {
+  calculateAccumulativeStats,
+  calculateBinaryStats,
+  calculatePerformanceStats,
+  formatTrackerNumber,
 } from './progressCalculations';
 
-function formatNumber(value) {
-  if (!Number.isFinite(value)) {
-    return '--';
-  }
-
-  return Number.isInteger(value)
-    ? value.toLocaleString()
-    : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-function getCurrentProgress(goal, entries) {
-  const mainMetric = goal.metrics[0];
-
-  if (!mainMetric) {
-    return null;
-  }
-
-  const latestEntry = entries
-    .filter((entry) => entry.goalId === goal.id)
-    .sort((leftEntry, rightEntry) => {
-      const dateCompare = rightEntry.date.localeCompare(leftEntry.date);
-      return dateCompare || rightEntry.createdAt.localeCompare(leftEntry.createdAt);
-    })
-    .find((entry) => Number.isFinite(entry.values?.[mainMetric.id]));
-
-  if (!latestEntry) {
-    return null;
-  }
-
-  const value = latestEntry.values[mainMetric.id];
-  const unit = mainMetric.unit || goal.unit;
+function getCurrentSummary(goal, entries) {
   const goalEntries = entries.filter((entry) => entry.goalId === goal.id);
-  const startEntry = getSortedMetricEntries(goalEntries, mainMetric.id)[0];
-  const startValue = startEntry?.values?.[mainMetric.id];
+  const goalType = getGoalType(goal);
+
+  if (goalType === 'binary') {
+    const stats = calculateBinaryStats(goal, goalEntries);
+
+    return {
+      current: `${stats.streak} day${stats.streak === 1 ? '' : 's'} streak`,
+      target: stats.completionRate === null ? '' : `${stats.completionRate}% completion`,
+      percentage: stats.completionRate,
+    };
+  }
+
+  if (goalType === 'accumulative') {
+    const stats = calculateAccumulativeStats(goal, goalEntries);
+    const unit = stats.unit || goal.unit;
+
+    return {
+      current: `Current: ${formatTrackerNumber(stats.totalValue)}`,
+      target: Number.isFinite(goal.targetValue)
+        ? `Goal: ${formatTrackerNumber(goal.targetValue)} ${unit}`.trim()
+        : '',
+      percentage: stats.progressPercentage,
+    };
+  }
+
+  const stats = calculatePerformanceStats(goal, goalEntries);
+  const unit = stats.unit || goal.unit;
 
   return {
-    value,
-    startValue,
-    unit,
-    percentage: getProgressFromStart(goal, goalEntries, mainMetric.id),
+    current: Number.isFinite(stats.latestValue)
+      ? `Current: ${formatTrackerNumber(stats.latestValue)} ${unit}`.trim()
+      : 'No entries yet',
+    target: Number.isFinite(goal.targetValue)
+      ? `Goal: ${formatTrackerNumber(goal.targetValue)} ${unit}`.trim()
+      : '',
+    percentage: stats.progressPercentage,
   };
+}
+
+function ProgressStrip({ percentage }) {
+  const width = Number.isFinite(percentage) ? Math.min(100, Math.max(0, percentage)) : 0;
+
+  return (
+    <div className="h-2 overflow-hidden rounded-full border-2 border-black bg-white">
+      <div className="h-full bg-[#c5ff6f]" style={{ width: `${width}%` }} />
+    </div>
+  );
+}
+
+function reorderItems(items, activeId, overId) {
+  if (!activeId || !overId || activeId === overId) {
+    return items;
+  }
+
+  const fromIndex = items.findIndex((item) => item.id === activeId);
+  const toIndex = items.findIndex((item) => item.id === overId);
+
+  if (fromIndex === -1 || toIndex === -1) {
+    return items;
+  }
+
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  nextItems.splice(toIndex, 0, movedItem);
+  return nextItems;
+}
+
+function isInteractiveTarget(target) {
+  return Boolean(
+    target.closest?.('button, input, select, textarea, a, [data-no-drag="true"]'),
+  );
 }
 
 export function GoalList({
@@ -52,9 +92,13 @@ export function GoalList({
   selectedGoalId,
   entries,
   onSelectGoal,
+  onEditGoal,
   onLogGoal,
-  onDeleteGoal,
+  onReorderGoals,
 }) {
+  const [draggedGoalId, setDraggedGoalId] = useState('');
+  const [dragOverGoalId, setDragOverGoalId] = useState('');
+
   function handleCardKeyDown(event, goalId) {
     if (event.key !== 'Enter' && event.key !== ' ') {
       return;
@@ -62,6 +106,19 @@ export function GoalList({
 
     event.preventDefault();
     onSelectGoal(goalId);
+  }
+
+  function handleDrop(event, overGoalId) {
+    event.preventDefault();
+    event.stopPropagation();
+    const activeGoalId = draggedGoalId || event.dataTransfer.getData('text/plain');
+    const nextGoals = reorderItems(goals, activeGoalId, overGoalId);
+    setDraggedGoalId('');
+    setDragOverGoalId('');
+
+    if (nextGoals !== goals) {
+      onReorderGoals(nextGoals);
+    }
   }
 
   return (
@@ -88,91 +145,149 @@ export function GoalList({
         <div className="mt-5 grid gap-3">
           {goals.map((goal) => {
             const isSelected = goal.id === selectedGoalId;
-            const entryCount = entries.filter(
-              (entry) => entry.goalId === goal.id,
-            ).length;
-            const currentProgress = getCurrentProgress(goal, entries);
+            const isDragging = draggedGoalId === goal.id;
+            const isDropTarget = dragOverGoalId === goal.id && draggedGoalId !== goal.id;
+            const goalType = getGoalType(goal);
+            const summary = getCurrentSummary(goal, entries);
 
             return (
               <article
                 key={goal.id}
                 role="button"
                 tabIndex={0}
+                draggable
                 onClick={() => onSelectGoal(goal.id)}
                 onKeyDown={(event) => handleCardKeyDown(event, goal.id)}
-                className={`group cursor-pointer rounded-[1.35rem] border-2 border-black p-4 outline-none transition hover:-translate-y-1 hover:shadow-[7px_7px_0_#000] focus-visible:-translate-y-1 focus-visible:shadow-[7px_7px_0_#000] focus-visible:ring-2 focus-visible:ring-black ${
+                onDragStart={(event) => {
+                  if (isInteractiveTarget(event.target)) {
+                    event.preventDefault();
+                    return;
+                  }
+
+                  setDraggedGoalId(goal.id);
+                  setDragOverGoalId('');
+                  event.dataTransfer.setData('text/plain', goal.id);
+                  event.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (draggedGoalId && draggedGoalId !== goal.id) {
+                    setDragOverGoalId(goal.id);
+                  }
+                  event.dataTransfer.dropEffect = 'move';
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                    setDragOverGoalId((currentGoalId) =>
+                      currentGoalId === goal.id ? '' : currentGoalId,
+                    );
+                  }
+                }}
+                onDrop={(event) => handleDrop(event, goal.id)}
+                onDragEnd={() => {
+                  setDraggedGoalId('');
+                  setDragOverGoalId('');
+                }}
+                className={`group relative rounded-[1.35rem] border-2 border-black p-4 outline-none transition hover:-translate-y-1 hover:shadow-[6px_6px_0_#000] focus-visible:-translate-y-1 focus-visible:shadow-[6px_6px_0_#000] focus-visible:ring-2 focus-visible:ring-black ${
                   isSelected ? 'bg-[#ff90e8]' : 'bg-[#fffdf8]'
+                } ${
+                  isDragging
+                    ? 'translate-x-1 translate-y-1 opacity-60 shadow-none'
+                    : ''
+                } ${
+                  isDropTarget
+                    ? '-translate-y-1 bg-[#c5ff6f] shadow-[6px_6px_0_#000] ring-4 ring-[#9fe3ff]'
+                    : ''
                 }`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 text-left">
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-black/55">
-                      {goalTypePresets[goal.type]?.label || goal.type}
-                    </p>
-                    <h3 className="mt-1 break-words text-xl font-bold tracking-[-0.04em] text-black">
-                      {goal.title}
-                    </h3>
-                    <span className="mt-2 inline-flex items-center rounded-full border-2 border-black bg-[#9fe3ff] px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black shadow-[2px_2px_0_#000] transition group-hover:translate-x-1">
-                      View details -&gt;
-                    </span>
+                {isDropTarget ? (
+                  <span className="pointer-events-none absolute -top-3 left-5 rounded-full border-2 border-black bg-white px-3 py-1 text-[0.65rem] font-bold uppercase tracking-[0.14em] text-black shadow-[2px_2px_0_#000]">
+                    Drop here
+                  </span>
+                ) : null}
+                <div className="flex items-start gap-3">
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    draggable
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    onDragStart={(event) => {
+                      setDraggedGoalId(goal.id);
+                      setDragOverGoalId('');
+                      event.dataTransfer.setData('text/plain', goal.id);
+                      event.dataTransfer.effectAllowed = 'move';
+                    }}
+                    className={`mt-1 shrink-0 cursor-grab rounded-full border-2 border-black px-2 py-1 text-xs font-bold uppercase tracking-[0.08em] text-black transition active:cursor-grabbing ${
+                      isDragging ? 'bg-black text-white' : 'bg-white group-hover:bg-[#9fe3ff]'
+                    }`}
+                    title="Drag to reorder"
+                  >
+                    ::
+                  </span>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-black/55">
+                          {goalBehaviorTypes[goalType].shortLabel} - {goalTypePresets[goal.type]?.label || goal.type}
+                        </p>
+                        <h3 className="mt-1 break-words text-xl font-bold tracking-[-0.04em] text-black">
+                          {goal.title}
+                        </h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEditGoal(goal);
+                        }}
+                        className="shrink-0 rounded-full border-2 border-black bg-white px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#9fe3ff]"
+                      >
+                        Edit
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="rounded-full border-2 border-black bg-[#c5ff6f] px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
+                        {summary.current}
+                      </span>
+                      {summary.target ? (
+                        <span className="rounded-full border-2 border-black bg-[#ffd166] px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
+                          {summary.target}
+                        </span>
+                      ) : goalType !== 'binary' ? (
+                        <span className="rounded-full border-2 border-black bg-white px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
+                          {formatGoalTarget(goal)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 grid gap-2">
+                      <ProgressStrip percentage={summary.percentage} />
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.12em] text-black/55">
+                          {Number.isFinite(summary.percentage) ? `${summary.percentage}% progress` : 'Progress pending'}
+                        </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold uppercase tracking-[0.12em] text-black/55">
+                            {goal.allowMultipleEntriesPerDay ? 'Multi-entry' : 'Daily entry'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onLogGoal(goal.id);
+                            }}
+                            className="rounded-full border-2 border-black bg-black px-3 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-white shadow-[2px_2px_0_#c5ff6f] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#c5ff6f]"
+                          >
+                            Add log
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDeleteGoal(goal.id);
-                    }}
-                    className="shrink-0 rounded-full border-2 border-black bg-white px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#ffe0de]"
-                  >
-                    Delete
-                  </button>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <span className="rounded-full border-2 border-black bg-white px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
-                    {formatGoalTarget(goal)}
-                  </span>
-                  {currentProgress?.startValue !== null && currentProgress?.startValue !== undefined ? (
-                    <span className="rounded-full border-2 border-black bg-[#ffd166] px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
-                      Start{' '}
-                      {`${formatNumber(currentProgress.startValue)} ${currentProgress.unit}`.trim()}
-                    </span>
-                  ) : null}
-                  <span className="rounded-full border-2 border-black bg-[#c5ff6f] px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
-                    Current{' '}
-                    {currentProgress
-                      ? `${formatNumber(currentProgress.value)} ${currentProgress.unit}`.trim()
-                      : '--'}
-                  </span>
-                  {currentProgress?.percentage !== null && currentProgress?.percentage !== undefined ? (
-                    <span className="rounded-full border-2 border-black bg-[#9fe3ff] px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
-                      {currentProgress.percentage}% from start
-                    </span>
-                  ) : null}
-                  <span className="rounded-full border-2 border-black bg-white px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
-                    {entryCount} entr{entryCount === 1 ? 'y' : 'ies'}
-                  </span>
-                  {goal.deadline ? (
-                    <span className="rounded-full border-2 border-black bg-white px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
-                      Due {goal.deadline}
-                    </span>
-                  ) : null}
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t-2 border-black/20 pt-4">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-black/55">
-                    Dashboard
-                  </p>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onLogGoal(goal.id);
-                    }}
-                    className="inline-flex items-center justify-center rounded-full border-2 border-black bg-black px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-white shadow-[3px_3px_0_#c5ff6f] transition hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0_#c5ff6f]"
-                  >
-                    Add log
-                  </button>
                 </div>
               </article>
             );

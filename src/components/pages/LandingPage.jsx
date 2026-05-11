@@ -1,5 +1,6 @@
 import { getAppHref } from "../../app/useRoute";
 import calLogo from "../../assets/cal-logo.png";
+import { ThemeToggle } from "../layout/ThemeToggle";
 
 const featureTiles = [
   {
@@ -52,12 +53,15 @@ export function LandingPage({ isAuthenticated }) {
               </div>
             </a>
 
-            <a
-              href={getAppHref(isAuthenticated ? "/board" : "/login")}
-              className="rounded-full border-2 border-black bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-black shadow-[4px_4px_0_#000]"
-            >
-              {isAuthenticated ? "Open board" : "Login"}
-            </a>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <ThemeToggle />
+              <a
+                href={getAppHref(isAuthenticated ? "/board" : "/login")}
+                className="rounded-full border-2 border-black bg-white px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-black shadow-[4px_4px_0_#000]"
+              >
+                {isAuthenticated ? "Open board" : "Login"}
+              </a>
+            </div>
           </header>
 
           <div className="grid flex-1 items-center gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,1.05fr)]">

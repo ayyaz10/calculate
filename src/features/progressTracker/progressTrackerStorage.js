@@ -1,5 +1,6 @@
 export const GOALS_STORAGE_KEY = 'calculatorBoard_progressTracker_goals';
 export const ENTRIES_STORAGE_KEY = 'calculatorBoard_progressTracker_entries';
+export const GOAL_ORDER_STORAGE_KEY = 'calculatorBoard_progressTracker_goal_order';
 
 export const metricColors = {
   lime: '#7ed957',
@@ -11,6 +12,122 @@ export const metricColors = {
 };
 
 export const metricColorKeys = Object.keys(metricColors);
+
+export const goalBehaviorTypes = {
+  performance: {
+    label: 'Performance Goal',
+    shortLabel: 'Performance',
+    description: 'Track current ability.',
+    examples: 'Typing speed, strength, speed',
+    note: 'Progress can go up or down.',
+  },
+  accumulative: {
+    label: 'Accumulative Goal',
+    shortLabel: 'Accumulative',
+    description: 'Track total completion toward a target.',
+    examples: 'Reading, studying, saving money',
+    note: 'Progress continuously increases.',
+  },
+  binary: {
+    label: 'Binary Goal',
+    shortLabel: 'Binary',
+    description: 'Track whether the task was completed.',
+    examples: 'Meditation, workout, habits',
+    note: 'Focus on consistency and streaks.',
+  },
+};
+
+const validGoalBehaviorTypes = Object.keys(goalBehaviorTypes);
+
+const legacyPresetGoalTypeMap = {
+  typing: 'performance',
+  walking: 'accumulative',
+  pomodoro: 'accumulative',
+  selfControl: 'binary',
+  custom: 'performance',
+};
+
+export function normalizeGoalType(value, fallbackType = 'custom') {
+  if (validGoalBehaviorTypes.includes(value)) {
+    return value;
+  }
+
+  if (typeof fallbackType === 'string') {
+    const [encodedGoalType] = fallbackType.split(':');
+
+    if (validGoalBehaviorTypes.includes(encodedGoalType)) {
+      return encodedGoalType;
+    }
+  }
+
+  return legacyPresetGoalTypeMap[fallbackType] || 'performance';
+}
+
+export function decodeGoalTypeFields(goalType, type = 'custom') {
+  if (typeof type === 'string') {
+    const [encodedGoalType, encodedType, ...encodedParts] = type.split(':');
+    const encodedStartValue = encodedParts
+      .map((part) => part.match(/^start=(.+)$/)?.[1])
+      .find(Boolean);
+    const encodedAllowMultiple = encodedParts.some((part) => part === 'multi=1');
+
+    if (validGoalBehaviorTypes.includes(encodedGoalType)) {
+      return {
+        goalType: encodedGoalType,
+        type: encodedType || 'custom',
+        startValue: encodedStartValue === undefined
+          ? null
+          : Number.parseFloat(encodedStartValue),
+        allowMultipleEntriesPerDay: encodedAllowMultiple,
+      };
+    }
+  }
+
+  return {
+    goalType: normalizeGoalType(goalType, type),
+    type,
+    startValue: null,
+    allowMultipleEntriesPerDay: false,
+  };
+}
+
+export function encodeGoalTypeForLegacyColumn(
+  goalType,
+  type = 'custom',
+  startValue = null,
+  allowMultipleEntriesPerDay = false,
+) {
+  const decoded = decodeGoalTypeFields(goalType, type);
+  const normalizedGoalType = normalizeGoalType(goalType, type);
+  const parsedStartValue = Number.parseFloat(startValue);
+  const startSuffix = Number.isFinite(parsedStartValue)
+    ? `:start=${parsedStartValue}`
+    : '';
+  const multiSuffix = allowMultipleEntriesPerDay ? ':multi=1' : '';
+
+  return normalizedGoalType === 'performance' && !startSuffix && !multiSuffix
+    ? decoded.type
+    : `${normalizedGoalType}:${decoded.type}${startSuffix}${multiSuffix}`;
+}
+
+export function getGoalType(goal) {
+  return normalizeGoalType(goal?.goalType, goal?.type);
+}
+
+export function isBinaryGoal(goal) {
+  return getGoalType(goal) === 'binary';
+}
+
+export function buildBinaryMetrics() {
+  return [
+    {
+      id: createId('metric'),
+      name: 'Completed',
+      unit: 'day',
+      colorKey: 'lime',
+    },
+  ];
+}
 
 export const goalTypePresets = {
   typing: {

@@ -1,4 +1,5 @@
 import { BrandBadge } from './BrandBadge';
+import { ThemeToggle } from './ThemeToggle';
 import { useAuth } from '../../contexts/AuthContext';
 
 export function PageShell({ children }) {
@@ -10,8 +11,11 @@ export function PageShell({ children }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <BrandBadge />
 
-          {user ? (
-            <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <ThemeToggle />
+
+            {user ? (
+              <>
               <span className="max-w-[16rem] truncate rounded-full border-2 border-black bg-[#fffdf8] px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-black">
                 {displayName}
               </span>
@@ -22,8 +26,9 @@ export function PageShell({ children }) {
               >
                 Logout
               </button>
-            </div>
-          ) : null}
+              </>
+            ) : null}
+          </div>
         </div>
         {children}
       </div>

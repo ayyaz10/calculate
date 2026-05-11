@@ -48,3 +48,23 @@ export function assertSupabaseResult({ error }) {
     throw error;
   }
 }
+
+export function isMissingColumnError(error, columnName) {
+  const haystack = [
+    error?.message,
+    error?.details,
+    error?.hint,
+    error?.code,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes(columnName.toLowerCase())
+    && (
+      haystack.includes('schema cache')
+      || haystack.includes('column')
+      || haystack.includes('42703')
+      || haystack.includes('pgrst204')
+    );
+}

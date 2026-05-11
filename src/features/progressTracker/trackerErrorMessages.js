@@ -3,6 +3,14 @@ export function getTrackerErrorMessage(error, fallbackMessage) {
   const lowerMessage = message.toLowerCase();
 
   if (
+    lowerMessage.includes('multiple entries need')
+    || lowerMessage.includes('latest database migration')
+    || lowerMessage.includes('one-log-per-day constraint')
+  ) {
+    return message;
+  }
+
+  if (
     lowerMessage.includes('entry_values_entry_id_fkey')
     || lowerMessage.includes('violates foreign key constraint')
   ) {

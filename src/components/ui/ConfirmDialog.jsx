@@ -55,7 +55,7 @@ export function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded-full border-2 border-black bg-[#ff90e8] px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black shadow-[4px_4px_0_#000]"
+            className="rounded-full border-2 border-black bg-[#ffe0de] px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-black shadow-[4px_4px_0_#000] transition hover:bg-[#ffb4ad]"
           >
             {confirmLabel}
           </button>

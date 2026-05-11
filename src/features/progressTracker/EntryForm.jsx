@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ThemedDatePicker } from '../../components/ui/ThemedDatePicker';
 import { ThemedSelect } from '../../components/ui/ThemedSelect';
-import { createId, getTodayInputValue } from './progressTrackerStorage';
+import { createId, getTodayInputValue, isBinaryGoal } from './progressTrackerStorage';
 import { getTrackerErrorMessage } from './trackerErrorMessages';
+import { getPrimaryMetric, isBinaryEntryCompleted } from './progressCalculations';
 
 function buildValueState(goal, entry) {
   if (!goal) {
@@ -25,6 +26,7 @@ export function EntryForm({
   editingEntry,
   onSaveEntry,
   onCancelEdit,
+  hideGoalSelect = false,
   isSaving = false,
 }) {
   const selectedGoal = useMemo(
@@ -37,6 +39,7 @@ export function EntryForm({
   );
   const [date, setDate] = useState(getTodayInputValue());
   const [values, setValues] = useState({});
+  const [completed, setCompleted] = useState(true);
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
 
@@ -45,12 +48,14 @@ export function EntryForm({
       setDate(editingEntry.date);
       setNote(editingEntry.note || '');
       setValues(buildValueState(selectedGoal, editingEntry));
+      setCompleted(isBinaryEntryCompleted(editingEntry, selectedGoal));
       return;
     }
 
     setDate(getTodayInputValue());
     setNote('');
     setValues(buildValueState(selectedGoal));
+    setCompleted(true);
   }, [editingEntry, selectedGoal]);
 
   function handleGoalChange(event) {
@@ -72,16 +77,24 @@ export function EntryForm({
       return;
     }
 
-    const parsedValues = Object.fromEntries(
-      selectedGoal.metrics
-        .map((metric) => [
-          metric.id,
-          values[metric.id] === ''
-            ? null
-            : Number.parseFloat(values[metric.id]),
-        ])
-        .filter(([, value]) => Number.isFinite(value)),
-    );
+    const mainMetric = getPrimaryMetric(selectedGoal);
+    if (isBinaryGoal(selectedGoal) && !mainMetric) {
+      setError('This binary goal needs a completion metric. Recreate the goal and try again.');
+      return;
+    }
+
+    const parsedValues = isBinaryGoal(selectedGoal)
+      ? { [mainMetric.id]: completed ? 1 : 0 }
+      : Object.fromEntries(
+        selectedGoal.metrics
+          .map((metric) => [
+            metric.id,
+            values[metric.id] === ''
+              ? null
+              : Number.parseFloat(values[metric.id]),
+          ])
+          .filter(([, value]) => Number.isFinite(value)),
+      );
 
     if (Object.keys(parsedValues).length === 0) {
       setError('Enter at least one metric value.');
@@ -93,6 +106,7 @@ export function EntryForm({
         id: editingEntry?.id || createId('entry'),
         goalId: selectedGoal.id,
         date,
+        completed: isBinaryGoal(selectedGoal) ? completed : null,
         values: parsedValues,
         note: note.trim(),
         createdAt: editingEntry?.createdAt || new Date().toISOString(),
@@ -106,6 +120,7 @@ export function EntryForm({
       setError('');
       setDate(getTodayInputValue());
       setValues(buildValueState(selectedGoal));
+      setCompleted(true);
       setNote('');
     } catch (saveError) {
       setError(
@@ -149,6 +164,7 @@ export function EntryForm({
       ) : (
         <>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {!hideGoalSelect ? (
             <label className="block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-black/70">
                 Goal
@@ -160,6 +176,7 @@ export function EntryForm({
                 disabled={Boolean(editingEntry)}
               />
             </label>
+            ) : null}
 
             <label className="block">
               <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-black/70">
@@ -173,7 +190,35 @@ export function EntryForm({
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {selectedGoal?.metrics.map((metric) => (
+            {isBinaryGoal(selectedGoal) ? (
+              <div className="md:col-span-2">
+                <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-black/70">
+                  Completion
+                </span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { value: true, label: 'Completed', color: '#fffdf8' },
+                    { value: false, label: 'Missed', color: '#ffe0de' },
+                  ].map((option) => {
+                    const selected = completed === option.value;
+
+                    return (
+                      <button
+                        key={option.label}
+                        type="button"
+                        onClick={() => setCompleted(option.value)}
+                        className={`rounded-[1.35rem] border-2 border-black px-4 py-4 text-left text-sm font-bold uppercase tracking-[0.12em] text-black transition hover:-translate-y-1 hover:shadow-[4px_4px_0_#000] ${
+                          selected ? 'shadow-[4px_4px_0_#000]' : ''
+                        }`}
+                        style={{ backgroundColor: selected ? '#9fe3ff' : option.color }}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : selectedGoal?.metrics.map((metric) => (
               <label key={metric.id} className="block">
                 <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-black/70">
                   {metric.name}

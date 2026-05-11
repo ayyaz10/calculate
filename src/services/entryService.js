@@ -1,16 +1,18 @@
 import {
   assertSupabaseResult,
   getUserScopedClient,
+  isMissingColumnError,
   normalizeLegacyUuid,
   parseNullableNumber,
 } from './supabaseCrud';
 import { requireSupabase } from '../lib/supabaseClient';
 
-const entrySelect = `
+const entrySelectWithCompletion = `
   id,
   user_id,
   goal_id,
   date,
+  completed,
   note,
   created_at,
   entry_values (
@@ -21,12 +23,15 @@ const entrySelect = `
   )
 `;
 
+const legacyEntrySelect = entrySelectWithCompletion.replace('  completed,\n', '');
+
 export function toEntry(row) {
   return {
     id: row.id,
     userId: row.user_id,
     goalId: row.goal_id,
     date: row.date,
+    completed: typeof row.completed === 'boolean' ? row.completed : null,
     note: row.note ?? '',
     createdAt: row.created_at,
     values: Object.fromEntries(
@@ -48,9 +53,31 @@ function toEntryPayload(entry, userId) {
     user_id: userId,
     goal_id: entry.goalId ?? entry.goal_id,
     date: entry.date,
+    completed: typeof entry.completed === 'boolean' ? entry.completed : null,
     note: entry.note?.trim() ?? '',
     created_at: entry.createdAt ?? entry.created_at ?? new Date().toISOString(),
   };
+}
+
+function withoutCompleted(entryPayload) {
+  const { completed: _completed, ...legacyPayload } = entryPayload;
+  return legacyPayload;
+}
+
+function isEntryDateConflict(error) {
+  const errorText = [
+    error?.code,
+    error?.message,
+    error?.details,
+    error?.hint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return error?.code === '23505'
+    || errorText.includes('duplicate key')
+    || errorText.includes('entries_user_id_goal_id_date_key');
 }
 
 function toEntryValueRows(entryId, values) {
@@ -69,10 +96,11 @@ async function getExistingEntryId(client, goalId, date) {
     .select('id')
     .eq('goal_id', goalId)
     .eq('date', date)
-    .maybeSingle();
+    .order('created_at', { ascending: false })
+    .limit(1);
 
   assertSupabaseResult({ error });
-  return data?.id ?? null;
+  return data?.[0]?.id ?? null;
 }
 
 async function replaceEntryValues(client, entryId, values) {
@@ -94,64 +122,122 @@ async function replaceEntryValues(client, entryId, values) {
 
 export async function getEntries() {
   const { client } = await getUserScopedClient();
-  const { data, error } = await client
+  const result = await client
     .from('entries')
-    .select(entrySelect)
+    .select(entrySelectWithCompletion)
     .order('date', { ascending: false })
     .order('created_at', { ascending: false });
 
-  assertSupabaseResult({ error });
-  return (data ?? []).map(toEntry);
+  if (isMissingColumnError(result.error, 'completed')) {
+    const legacyResult = await client
+      .from('entries')
+      .select(legacyEntrySelect)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    assertSupabaseResult(legacyResult);
+    return (legacyResult.data ?? []).map(toEntry);
+  }
+
+  assertSupabaseResult(result);
+  return (result.data ?? []).map(toEntry);
 }
 
 export async function getEntriesByGoal(goalId) {
   const { client } = await getUserScopedClient();
-  const { data, error } = await client
+  const result = await client
     .from('entries')
-    .select(entrySelect)
+    .select(entrySelectWithCompletion)
     .eq('goal_id', goalId)
     .order('date', { ascending: false })
     .order('created_at', { ascending: false });
 
-  assertSupabaseResult({ error });
-  return (data ?? []).map(toEntry);
+  if (isMissingColumnError(result.error, 'completed')) {
+    const legacyResult = await client
+      .from('entries')
+      .select(legacyEntrySelect)
+      .eq('goal_id', goalId)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    assertSupabaseResult(legacyResult);
+    return (legacyResult.data ?? []).map(toEntry);
+  }
+
+  assertSupabaseResult(result);
+  return (result.data ?? []).map(toEntry);
 }
 
-export async function createEntry(entry) {
+export async function createEntry(entry, options = {}) {
   const { client, userId } = await getUserScopedClient();
   const entryPayload = toEntryPayload(entry, userId);
   const goalId = entryPayload.goal_id;
-  const existingEntryId = await getExistingEntryId(client, goalId, entryPayload.date);
+  const allowMultipleEntriesPerDay = Boolean(options.allowMultipleEntriesPerDay);
+  const existingEntryId = allowMultipleEntriesPerDay
+    ? null
+    : await getExistingEntryId(client, goalId, entryPayload.date);
 
   if (existingEntryId) {
-    const updateResult = await client
+    let updateResult = await client
       .from('entries')
-      .update({ note: entryPayload.note })
+      .update({ note: entryPayload.note, completed: entryPayload.completed })
       .eq('id', existingEntryId)
       .select('id')
       .single();
+
+    if (isMissingColumnError(updateResult.error, 'completed')) {
+      updateResult = await client
+        .from('entries')
+        .update({ note: entryPayload.note })
+        .eq('id', existingEntryId)
+        .select('id')
+        .single();
+    }
 
     assertSupabaseResult(updateResult);
     await replaceEntryValues(client, existingEntryId, entry.values);
     return getEntryById(existingEntryId);
   }
 
-  const { data: entryRow, error: entryError } = await client
+  let insertResult = await client
     .from('entries')
     .insert(entryPayload)
     .select('id')
     .single();
 
-  if (entryError?.code === '23505') {
+  if (isMissingColumnError(insertResult.error, 'completed')) {
+    insertResult = await client
+      .from('entries')
+      .insert(withoutCompleted(entryPayload))
+      .select('id')
+      .single();
+  }
+
+  if (isEntryDateConflict(insertResult.error) && allowMultipleEntriesPerDay) {
+    throw new Error(
+      'Multiple entries are enabled, but Supabase still has the old one-log-per-day constraint. Apply the tracker schema migration to drop entries_user_id_goal_id_date_key, then try again.',
+    );
+  }
+
+  if (isEntryDateConflict(insertResult.error)) {
     const conflictEntryId = await getExistingEntryId(client, goalId, entryPayload.date);
 
     if (conflictEntryId) {
-      const updateResult = await client
+      let updateResult = await client
         .from('entries')
-        .update({ note: entryPayload.note })
+        .update({ note: entryPayload.note, completed: entryPayload.completed })
         .eq('id', conflictEntryId)
         .select('id')
         .single();
+
+      if (isMissingColumnError(updateResult.error, 'completed')) {
+        updateResult = await client
+          .from('entries')
+          .update({ note: entryPayload.note })
+          .eq('id', conflictEntryId)
+          .select('id')
+          .single();
+      }
 
       assertSupabaseResult(updateResult);
       await replaceEntryValues(client, conflictEntryId, entry.values);
@@ -159,35 +245,57 @@ export async function createEntry(entry) {
     }
   }
 
-  assertSupabaseResult({ error: entryError });
-  await replaceEntryValues(client, entryRow.id, entry.values);
-  return getEntryById(entryRow.id);
+  assertSupabaseResult(insertResult);
+  await replaceEntryValues(client, insertResult.data.id, entry.values);
+  return getEntryById(insertResult.data.id);
 }
 
 export async function getEntryById(entryId) {
   const { client } = await getUserScopedClient();
-  const { data, error } = await client
+  const result = await client
     .from('entries')
-    .select(entrySelect)
+    .select(entrySelectWithCompletion)
     .eq('id', entryId)
     .single();
 
-  assertSupabaseResult({ error });
-  return toEntry(data);
+  if (isMissingColumnError(result.error, 'completed')) {
+    const legacyResult = await client
+      .from('entries')
+      .select(legacyEntrySelect)
+      .eq('id', entryId)
+      .single();
+
+    assertSupabaseResult(legacyResult);
+    return toEntry(legacyResult.data);
+  }
+
+  assertSupabaseResult(result);
+  return toEntry(result.data);
 }
 
 export async function updateEntry(entryId, entry) {
   const { client } = await getUserScopedClient();
-  const updateResult = await client
+  const entryUpdates = {
+    goal_id: entry.goalId ?? entry.goal_id,
+    date: entry.date,
+    completed: typeof entry.completed === 'boolean' ? entry.completed : null,
+    note: entry.note?.trim() ?? '',
+  };
+  let updateResult = await client
     .from('entries')
-    .update({
-      goal_id: entry.goalId ?? entry.goal_id,
-      date: entry.date,
-      note: entry.note?.trim() ?? '',
-    })
+    .update(entryUpdates)
     .eq('id', entryId)
     .select('id')
     .single();
+
+  if (isMissingColumnError(updateResult.error, 'completed')) {
+    updateResult = await client
+      .from('entries')
+      .update(withoutCompleted(entryUpdates))
+      .eq('id', entryId)
+      .select('id')
+      .single();
+  }
 
   assertSupabaseResult(updateResult);
   await replaceEntryValues(client, updateResult.data.id, entry.values);

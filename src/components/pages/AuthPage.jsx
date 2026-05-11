@@ -6,6 +6,7 @@ import {
   normalizeUsername,
 } from "../../services/profileService";
 import { BrandBadge } from "../layout/BrandBadge";
+import { ThemeToggle } from "../layout/ThemeToggle";
 
 export function AuthPage() {
   const { authError, isConfigured, signIn, signUp } = useAuth();
@@ -81,7 +82,10 @@ export function AuthPage() {
   return (
     <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 lg:py-6">
-        <BrandBadge />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <BrandBadge />
+          <ThemeToggle />
+        </div>
 
         <section className="panel mx-auto w-full max-w-xl p-6 sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">

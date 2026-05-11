@@ -14,9 +14,13 @@ create table if not exists public.goals (
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   title text not null,
   type text not null,
+  goal_type text not null default 'performance',
+  start_value numeric,
   target_value numeric,
   unit text not null default '',
   deadline date,
+  allow_multiple_entries_per_day boolean not null default false,
+  sort_order integer not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -34,10 +38,58 @@ create table if not exists public.entries (
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   goal_id uuid not null references public.goals(id) on delete cascade,
   date date not null,
+  completed boolean,
   note text not null default '',
   created_at timestamptz not null default now(),
   unique (user_id, goal_id, date)
 );
+
+alter table public.goals
+  add column if not exists goal_type text not null default 'performance';
+
+alter table public.goals
+  add column if not exists start_value numeric;
+
+alter table public.goals
+  add column if not exists allow_multiple_entries_per_day boolean not null default false;
+
+alter table public.goals
+  add column if not exists sort_order integer not null default 0;
+
+alter table public.entries
+  add column if not exists completed boolean;
+
+alter table public.entries
+  drop constraint if exists entries_user_id_goal_id_date_key;
+
+update public.goals
+set goal_type = case
+  when type in ('walking', 'pomodoro') then 'accumulative'
+  when type = 'selfControl' then 'binary'
+  else 'performance'
+end
+where goal_type = 'performance';
+
+update public.goals
+set
+  goal_type = split_part(type, ':', 1),
+  start_value = coalesce(
+    start_value,
+    nullif(substring(type from ':start=([-0-9.]+)'), '')::numeric
+  ),
+  allow_multiple_entries_per_day = case
+    when type like '%:multi=1%' then true
+    else allow_multiple_entries_per_day
+  end,
+  type = coalesce(nullif(split_part(type, ':', 2), ''), 'custom')
+where type ~ '^(performance|accumulative|binary):';
+
+alter table public.goals
+  drop constraint if exists goals_goal_type_check;
+
+alter table public.goals
+  add constraint goals_goal_type_check
+  check (goal_type in ('performance', 'accumulative', 'binary'));
 
 create table if not exists public.entry_values (
   id uuid primary key default gen_random_uuid(),
@@ -75,6 +127,8 @@ create table if not exists public.data_migrations (
 );
 
 create index if not exists goals_user_created_idx on public.goals (user_id, created_at desc);
+create index if not exists goals_user_goal_type_idx on public.goals (user_id, goal_type);
+create index if not exists goals_user_sort_idx on public.goals (user_id, sort_order asc, created_at desc);
 create index if not exists metrics_goal_created_idx on public.metrics (goal_id, created_at asc);
 create index if not exists entries_user_goal_date_idx on public.entries (user_id, goal_id, date desc);
 create index if not exists entry_values_entry_idx on public.entry_values (entry_id);
