@@ -6,9 +6,25 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { createEntry, deleteEntry, getEntries, subscribeToEntries, updateEntry } from '../../services/entryService';
 import {
+  createGoalJournalEntry,
+  deleteGoalJournalEntry,
+  getGoalJournalEntries,
+  subscribeToGoalJournalEntries,
+  updateGoalJournalEntry,
+} from '../../services/goalJournalService';
+import {
+  createGoalQuote,
+  deleteGoalQuote,
+  getGoalQuotes,
+  pinGoalQuote,
+  subscribeToGoalQuotes,
+  updateGoalQuote,
+} from '../../services/goalQuoteService';
+import {
   createGoal,
   deleteGoal,
   getGoals,
+  updateGoal,
   updateGoalDetails,
   updateGoalSortOrder,
 } from '../../services/goalService';
@@ -17,6 +33,7 @@ import { EntryList } from './EntryList';
 import { GoalChart } from './GoalChart';
 import { GoalForm } from './GoalForm';
 import { GoalList } from './GoalList';
+import { GoalJournalPanel, GoalPinnedQuote, GoalVisionPanel } from './GoalMindsetPanel';
 import { GoalStats } from './GoalStats';
 import { GOAL_ORDER_STORAGE_KEY } from './progressTrackerStorage';
 import { getTrackerErrorMessage } from './trackerErrorMessages';
@@ -24,6 +41,12 @@ import { getTrackerErrorMessage } from './trackerErrorMessages';
 const trackerViews = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'new-tracker', label: 'New Tracker' },
+];
+
+const goalDetailViews = [
+  { id: 'progress', label: 'Progress' },
+  { id: 'vision', label: 'Vision' },
+  { id: 'journal', label: 'Journal' },
 ];
 
 function readLocalGoalOrder() {
@@ -81,26 +104,36 @@ export function ProgressTracker() {
   const { confirm, dialog } = useConfirmDialog();
   const [goals, setGoals] = useState([]);
   const [entries, setEntries] = useState([]);
+  const [goalJournalEntries, setGoalJournalEntries] = useState([]);
+  const [goalQuotes, setGoalQuotes] = useState([]);
   const [selectedGoalId, setSelectedGoalId] = useState('');
   const [editingEntry, setEditingEntry] = useState(null);
   const [editingGoal, setEditingGoal] = useState(null);
   const [isLogPanelOpen, setIsLogPanelOpen] = useState(false);
   const [activeView, setActiveView] = useState('dashboard');
+  const [activeGoalDetailView, setActiveGoalDetailView] = useState('progress');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isReflectionSaving, setIsReflectionSaving] = useState(false);
+  const [isJournalSaving, setIsJournalSaving] = useState(false);
+  const [isQuoteSaving, setIsQuoteSaving] = useState(false);
   const [error, setError] = useState('');
 
   async function loadTrackerData() {
     setError('');
 
     try {
-      const [savedGoals, savedEntries] = await Promise.all([
+      const [savedGoals, savedEntries, savedGoalJournalEntries, savedGoalQuotes] = await Promise.all([
         getGoals(),
         getEntries(),
+        getGoalJournalEntries(),
+        getGoalQuotes(),
       ]);
 
       setGoals(applyLocalGoalOrder(savedGoals));
       setEntries(savedEntries);
+      setGoalJournalEntries(savedGoalJournalEntries);
+      setGoalQuotes(savedGoalQuotes);
     } catch (loadError) {
       setError(
         getTrackerErrorMessage(
@@ -123,7 +156,7 @@ export function ProgressTracker() {
       return undefined;
     }
 
-    const channel = subscribeToEntries(user.id, () => {
+    const entriesChannel = subscribeToEntries(user.id, () => {
       getEntries()
         .then(setEntries)
         .catch((entryError) => setError(
@@ -133,9 +166,31 @@ export function ProgressTracker() {
           ),
         ));
     });
+    const goalJournalChannel = subscribeToGoalJournalEntries(user.id, () => {
+      getGoalJournalEntries()
+        .then(setGoalJournalEntries)
+        .catch((journalError) => setError(
+          getTrackerErrorMessage(
+            journalError,
+            'Could not refresh goal journal entries. Please try again.',
+          ),
+        ));
+    });
+    const goalQuotesChannel = subscribeToGoalQuotes(user.id, () => {
+      getGoalQuotes()
+        .then(setGoalQuotes)
+        .catch((quoteError) => setError(
+          getTrackerErrorMessage(
+            quoteError,
+            'Could not refresh goal quotes. Please try again.',
+          ),
+        ));
+    });
 
     return () => {
-      channel.unsubscribe();
+      entriesChannel.unsubscribe();
+      goalJournalChannel.unsubscribe();
+      goalQuotesChannel.unsubscribe();
     };
   }, [user?.id]);
 
@@ -143,11 +198,13 @@ export function ProgressTracker() {
     if (goals.length === 0) {
       setSelectedGoalId('');
       setEditingEntry(null);
+      setActiveGoalDetailView('progress');
       return;
     }
 
     if (selectedGoalId && !goals.some((goal) => goal.id === selectedGoalId)) {
       setSelectedGoalId('');
+      setActiveGoalDetailView('progress');
     }
   }, [goals, selectedGoalId]);
 
@@ -158,6 +215,14 @@ export function ProgressTracker() {
   const selectedGoalEntries = useMemo(
     () => entries.filter((entry) => entry.goalId === selectedGoalId),
     [entries, selectedGoalId],
+  );
+  const selectedGoalJournalEntries = useMemo(
+    () => goalJournalEntries.filter((entry) => entry.goalId === selectedGoalId),
+    [goalJournalEntries, selectedGoalId],
+  );
+  const selectedGoalQuotes = useMemo(
+    () => goalQuotes.filter((quote) => quote.goalId === selectedGoalId),
+    [goalQuotes, selectedGoalId],
   );
 
   async function handleCreateGoal(goal) {
@@ -172,6 +237,7 @@ export function ProgressTracker() {
       setGoals((current) => [savedGoal, ...current]);
       setSelectedGoalId(savedGoal.id);
       setActiveView('dashboard');
+      setActiveGoalDetailView('progress');
     } catch (createError) {
       setError(
         getTrackerErrorMessage(
@@ -248,6 +314,7 @@ export function ProgressTracker() {
     setEditingGoal(null);
     setIsLogPanelOpen(true);
     setActiveView('dashboard');
+    setActiveGoalDetailView('progress');
   }
 
   async function handleDeleteEntry(entryId) {
@@ -299,9 +366,12 @@ export function ProgressTracker() {
       await deleteGoal(goalId);
       setGoals((current) => current.filter((savedGoal) => savedGoal.id !== goalId));
       setEntries((current) => current.filter((entry) => entry.goalId !== goalId));
+      setGoalJournalEntries((current) => current.filter((entry) => entry.goalId !== goalId));
+      setGoalQuotes((current) => current.filter((quote) => quote.goalId !== goalId));
       if (selectedGoalId === goalId) {
         setSelectedGoalId('');
         setIsLogPanelOpen(false);
+        setActiveGoalDetailView('progress');
       }
     } catch (deleteError) {
       setError(
@@ -335,6 +405,192 @@ export function ProgressTracker() {
       throw updateError;
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleSaveGoalReflection(goalId, reflection) {
+    setIsReflectionSaving(true);
+    setError('');
+
+    try {
+      const savedGoal = await updateGoal(goalId, reflection);
+
+      if (
+        (reflection.vision && savedGoal.vision !== reflection.vision)
+        || (reflection.quote && savedGoal.quote !== reflection.quote)
+      ) {
+        throw new Error(
+          'Goal vision storage is not ready yet. Apply the Supabase schema migration, then try again.',
+        );
+      }
+
+      setGoals((current) =>
+        current.map((currentGoal) =>
+          currentGoal.id === savedGoal.id ? savedGoal : currentGoal,
+        ),
+      );
+      return true;
+    } catch (reflectionError) {
+      setError(
+        getTrackerErrorMessage(
+          reflectionError,
+          'Could not save this goal vision. Please try again.',
+        ),
+      );
+      throw reflectionError;
+    } finally {
+      setIsReflectionSaving(false);
+    }
+  }
+
+  async function handleSaveGoalJournalEntry(journalEntry) {
+    setIsJournalSaving(true);
+    setError('');
+
+    try {
+      const savedJournalEntry = goalJournalEntries.some((entry) => entry.id === journalEntry.id)
+        ? await updateGoalJournalEntry(journalEntry.id, journalEntry)
+        : await createGoalJournalEntry(journalEntry);
+
+      setGoalJournalEntries((current) => [
+        savedJournalEntry,
+        ...current.filter((entry) => entry.id !== savedJournalEntry.id),
+      ]);
+      return true;
+    } catch (journalError) {
+      setError(
+        getTrackerErrorMessage(
+          journalError,
+          'Could not save this goal journal entry. Please try again.',
+        ),
+      );
+      throw journalError;
+    } finally {
+      setIsJournalSaving(false);
+    }
+  }
+
+  async function handleDeleteGoalJournalEntry(journalEntryId) {
+    const confirmed = await confirm({
+      title: 'Delete journal entry?',
+      message: 'This removes the reflection from this goal journal.',
+      confirmLabel: 'Delete',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setError('');
+
+    try {
+      await deleteGoalJournalEntry(journalEntryId);
+      setGoalJournalEntries((current) =>
+        current.filter((entry) => entry.id !== journalEntryId),
+      );
+    } catch (journalError) {
+      setError(
+        getTrackerErrorMessage(
+          journalError,
+          'Could not delete this goal journal entry. Please try again.',
+        ),
+      );
+    }
+  }
+
+  async function handleSaveGoalQuote(quote) {
+    setIsQuoteSaving(true);
+    setError('');
+
+    try {
+      const savedQuote = goalQuotes.some((currentQuote) => currentQuote.id === quote.id)
+        ? await updateGoalQuote(quote.id, quote)
+        : await createGoalQuote(quote);
+
+      setGoalQuotes((current) => {
+        const withoutSavedQuote = current.filter((currentQuote) => currentQuote.id !== savedQuote.id);
+        const nextQuotes = savedQuote.isPinned
+          ? withoutSavedQuote.map((currentQuote) =>
+            currentQuote.goalId === savedQuote.goalId
+              ? { ...currentQuote, isPinned: false }
+              : currentQuote,
+          )
+          : withoutSavedQuote;
+
+        return [savedQuote, ...nextQuotes];
+      });
+      return true;
+    } catch (quoteError) {
+      setError(
+        getTrackerErrorMessage(
+          quoteError,
+          'Could not save this goal quote. Please try again.',
+        ),
+      );
+      throw quoteError;
+    } finally {
+      setIsQuoteSaving(false);
+    }
+  }
+
+  async function handlePinGoalQuote(quote) {
+    setIsQuoteSaving(true);
+    setError('');
+
+    try {
+      const pinnedQuote = await pinGoalQuote(quote);
+      setGoalQuotes((current) =>
+        current.map((currentQuote) => {
+          if (currentQuote.id === pinnedQuote.id) {
+            return pinnedQuote;
+          }
+
+          if (currentQuote.goalId === pinnedQuote.goalId) {
+            return { ...currentQuote, isPinned: false };
+          }
+
+          return currentQuote;
+        }),
+      );
+    } catch (quoteError) {
+      setError(
+        getTrackerErrorMessage(
+          quoteError,
+          'Could not pin this goal quote. Please try again.',
+        ),
+      );
+      throw quoteError;
+    } finally {
+      setIsQuoteSaving(false);
+    }
+  }
+
+  async function handleDeleteGoalQuote(quoteId) {
+    const quote = goalQuotes.find((currentQuote) => currentQuote.id === quoteId);
+    const confirmed = await confirm({
+      title: 'Delete quote?',
+      message: quote?.isPinned
+        ? 'This removes the quote currently shown on the goal dashboard.'
+        : 'This removes the quote from this goal.',
+      confirmLabel: 'Delete',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setError('');
+
+    try {
+      await deleteGoalQuote(quoteId);
+      setGoalQuotes((current) => current.filter((currentQuote) => currentQuote.id !== quoteId));
+    } catch (quoteError) {
+      setError(
+        getTrackerErrorMessage(
+          quoteError,
+          'Could not delete this goal quote. Please try again.',
+        ),
+      );
     }
   }
 
@@ -478,17 +734,20 @@ export function ProgressTracker() {
                     setEditingEntry(null);
                     setEditingGoal(null);
                     setIsLogPanelOpen(false);
+                    setActiveGoalDetailView('progress');
                   }}
                   onEditGoal={(goal) => {
                     setSelectedGoalId(goal.id);
                     setEditingGoal(goal);
                     setIsLogPanelOpen(false);
+                    setActiveGoalDetailView('progress');
                   }}
                   onLogGoal={(goalId) => {
                     setSelectedGoalId(goalId);
                     setEditingGoal(null);
                     setEditingEntry(null);
                     setIsLogPanelOpen(true);
+                    setActiveGoalDetailView('progress');
                   }}
                   onReorderGoals={handleReorderGoals}
                 />
@@ -502,6 +761,9 @@ export function ProgressTracker() {
                 />
               ) : (
                 <div className="grid gap-3">
+                  {selectedGoal ? (
+                    <GoalPinnedQuote goal={selectedGoal} quotes={selectedGoalQuotes} />
+                  ) : null}
                   <GoalStats goal={selectedGoal} entries={selectedGoalEntries} />
                   {selectedGoal ? (
                     <div className="flex flex-wrap justify-end gap-2">
@@ -527,13 +789,63 @@ export function ProgressTracker() {
 
             {selectedGoal && !editingGoal && !isLogPanelOpen ? (
               <div className="mt-5 grid gap-5">
-                <GoalChart goal={selectedGoal} entries={selectedGoalEntries} />
-                <EntryList
-                  goal={selectedGoal}
-                  entries={selectedGoalEntries}
-                  onEditEntry={handleEditEntry}
-                  onDeleteEntry={handleDeleteEntry}
-                />
+                <div className="overflow-x-auto">
+                  <div className="flex min-w-max gap-2">
+                    {goalDetailViews.map((view) => {
+                      const isActive = activeGoalDetailView === view.id;
+
+                      return (
+                        <button
+                          key={view.id}
+                          type="button"
+                          onClick={() => setActiveGoalDetailView(view.id)}
+                          className={`inline-flex items-center rounded-full border-2 border-black px-3.5 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-black transition ${
+                            isActive
+                              ? 'bg-[#c5ff6f] shadow-[3px_3px_0_#000]'
+                              : 'bg-[#fffdf8] hover:bg-white'
+                          }`}
+                        >
+                          {view.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {activeGoalDetailView === 'progress' ? (
+                  <>
+                    <GoalChart goal={selectedGoal} entries={selectedGoalEntries} />
+                    <EntryList
+                      goal={selectedGoal}
+                      entries={selectedGoalEntries}
+                      onEditEntry={handleEditEntry}
+                      onDeleteEntry={handleDeleteEntry}
+                    />
+                  </>
+                ) : null}
+
+                {activeGoalDetailView === 'vision' ? (
+                  <GoalVisionPanel
+                    goal={selectedGoal}
+                    goalQuotes={selectedGoalQuotes}
+                    onSaveReflection={handleSaveGoalReflection}
+                    onSaveQuote={handleSaveGoalQuote}
+                    onPinQuote={handlePinGoalQuote}
+                    onDeleteQuote={handleDeleteGoalQuote}
+                    isSaving={isReflectionSaving}
+                    isQuoteSaving={isQuoteSaving}
+                  />
+                ) : null}
+
+                {activeGoalDetailView === 'journal' ? (
+                  <GoalJournalPanel
+                    goal={selectedGoal}
+                    journalEntries={selectedGoalJournalEntries}
+                    onSaveJournalEntry={handleSaveGoalJournalEntry}
+                    onDeleteJournalEntry={handleDeleteGoalJournalEntry}
+                    isSaving={isJournalSaving}
+                  />
+                ) : null}
               </div>
             ) : null}
           </>

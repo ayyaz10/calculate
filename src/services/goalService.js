@@ -24,6 +24,8 @@ const goalSelectWithBehavior = `
   deadline,
   allow_multiple_entries_per_day,
   sort_order,
+  vision,
+  quote,
   created_at,
   metrics (
     id,
@@ -39,10 +41,26 @@ const goalSelectWithoutBehavior = goalSelectWithBehavior.replace('  goal_type,\n
 const goalSelectWithoutStartValue = goalSelectWithBehavior.replace('  start_value,\n', '');
 const goalSelectWithoutAllowMultiple = goalSelectWithBehavior.replace('  allow_multiple_entries_per_day,\n', '');
 const goalSelectWithoutSortOrder = goalSelectWithBehavior.replace('  sort_order,\n', '');
+const goalSelectWithoutVision = goalSelectWithBehavior.replace('  vision,\n', '');
+const goalSelectWithoutQuote = goalSelectWithBehavior.replace('  quote,\n', '');
+const goalSelectWithoutNarrative = goalSelectWithBehavior
+  .replace('  vision,\n', '')
+  .replace('  quote,\n', '');
 const legacyGoalSelect = goalSelectWithoutBehavior
   .replace('  start_value,\n', '')
   .replace('  allow_multiple_entries_per_day,\n', '')
-  .replace('  sort_order,\n', '');
+  .replace('  sort_order,\n', '')
+  .replace('  vision,\n', '')
+  .replace('  quote,\n', '');
+
+const optionalGoalColumns = [
+  'goal_type',
+  'start_value',
+  'allow_multiple_entries_per_day',
+  'sort_order',
+  'vision',
+  'quote',
+];
 
 export function toGoal(row) {
   const decodedGoal = decodeGoalTypeFields(row.goal_type, row.type);
@@ -61,6 +79,8 @@ export function toGoal(row) {
       row.allow_multiple_entries_per_day ?? decodedGoal.allowMultipleEntriesPerDay,
     ),
     sortOrder: Number.isFinite(row.sort_order) ? row.sort_order : 0,
+    vision: row.vision ?? '',
+    quote: row.quote ?? '',
     createdAt: row.created_at,
     metrics: (row.metrics ?? [])
       .map(toMetric)
@@ -89,12 +109,19 @@ function toGoalInsert(goal, userId) {
     sort_order: Number.isFinite(goal.sortOrder ?? goal.sort_order)
       ? goal.sortOrder ?? goal.sort_order
       : 0,
+    vision: goal.vision?.trim() ?? '',
+    quote: goal.quote?.trim() ?? '',
     created_at: goal.createdAt ?? goal.created_at ?? new Date().toISOString(),
   };
 }
 
 function withoutGoalType(goalPayload) {
   const { goal_type: goalType, ...legacyPayload } = goalPayload;
+
+  if (legacyPayload.type === undefined && goalType === undefined) {
+    return legacyPayload;
+  }
+
   return {
     ...legacyPayload,
     type: encodeGoalTypeForLegacyColumn(
@@ -108,6 +135,16 @@ function withoutGoalType(goalPayload) {
 
 function withoutStartValue(goalPayload) {
   const { start_value: startValue, ...legacyPayload } = goalPayload;
+
+  if (
+    legacyPayload.type === undefined
+    && legacyPayload.goal_type === undefined
+    && startValue === undefined
+    && legacyPayload.allow_multiple_entries_per_day === undefined
+  ) {
+    return legacyPayload;
+  }
+
   return {
     ...legacyPayload,
     type: encodeGoalTypeForLegacyColumn(
@@ -121,6 +158,16 @@ function withoutStartValue(goalPayload) {
 
 function withoutAllowMultiple(goalPayload) {
   const { allow_multiple_entries_per_day: allowMultiple, ...legacyPayload } = goalPayload;
+
+  if (
+    legacyPayload.type === undefined
+    && legacyPayload.goal_type === undefined
+    && legacyPayload.start_value === undefined
+    && allowMultiple === undefined
+  ) {
+    return legacyPayload;
+  }
+
   return {
     ...legacyPayload,
     type: encodeGoalTypeForLegacyColumn(
@@ -135,6 +182,34 @@ function withoutAllowMultiple(goalPayload) {
 function withoutSortOrder(goalPayload) {
   const { sort_order: _sortOrder, ...legacyPayload } = goalPayload;
   return legacyPayload;
+}
+
+function withoutVision(goalPayload) {
+  const { vision: _vision, ...legacyPayload } = goalPayload;
+  return legacyPayload;
+}
+
+function withoutQuote(goalPayload) {
+  const { quote: _quote, ...legacyPayload } = goalPayload;
+  return legacyPayload;
+}
+
+function withoutAllOptionalGoalColumns(goalPayload) {
+  return withoutQuote(
+    withoutVision(
+      withoutSortOrder(
+        withoutAllowMultiple(
+          withoutStartValue(
+            withoutGoalType(goalPayload),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+function isOptionalGoalColumnError(error) {
+  return optionalGoalColumns.some((columnName) => isMissingColumnError(error, columnName));
 }
 
 function getGoalPayloadForMissingColumn(payload, error) {
@@ -154,6 +229,14 @@ function getGoalPayloadForMissingColumn(payload, error) {
     return withoutSortOrder(payload);
   }
 
+  if (isMissingColumnError(error, 'vision')) {
+    return withoutVision(payload);
+  }
+
+  if (isMissingColumnError(error, 'quote')) {
+    return withoutQuote(payload);
+  }
+
   return payload;
 }
 
@@ -163,6 +246,9 @@ async function selectGoalsWithFallback(buildQuery) {
     goalSelectWithoutStartValue,
     goalSelectWithoutAllowMultiple,
     goalSelectWithoutSortOrder,
+    goalSelectWithoutVision,
+    goalSelectWithoutQuote,
+    goalSelectWithoutNarrative,
     goalSelectWithoutBehavior,
     legacyGoalSelect,
   ];
@@ -173,10 +259,7 @@ async function selectGoalsWithFallback(buildQuery) {
     const result = await buildQuery(selectStatement);
     lastResult = result;
 
-    if (!isMissingColumnError(result.error, 'goal_type')
-      && !isMissingColumnError(result.error, 'start_value')
-      && !isMissingColumnError(result.error, 'allow_multiple_entries_per_day')
-      && !isMissingColumnError(result.error, 'sort_order')) {
+    if (!isOptionalGoalColumnError(result.error)) {
       return result;
     }
   }
@@ -226,13 +309,10 @@ export async function createGoal(goal) {
   let insertResult = await client
     .from('goals')
     .insert(goalPayload)
-    .select('id, user_id, title, type, goal_type, start_value, target_value, unit, deadline, allow_multiple_entries_per_day, sort_order, created_at')
+    .select('id, user_id, title, type, goal_type, start_value, target_value, unit, deadline, allow_multiple_entries_per_day, sort_order, vision, quote, created_at')
     .single();
 
-  if (isMissingColumnError(insertResult.error, 'goal_type')
-    || isMissingColumnError(insertResult.error, 'start_value')
-    || isMissingColumnError(insertResult.error, 'allow_multiple_entries_per_day')
-    || isMissingColumnError(insertResult.error, 'sort_order')) {
+  if (isOptionalGoalColumnError(insertResult.error)) {
     const fallbackPayload = getGoalPayloadForMissingColumn(goalPayload, insertResult.error);
     insertResult = await client
       .from('goals')
@@ -240,13 +320,10 @@ export async function createGoal(goal) {
       .select('id')
       .single();
 
-    if (isMissingColumnError(insertResult.error, 'goal_type')
-      || isMissingColumnError(insertResult.error, 'start_value')
-      || isMissingColumnError(insertResult.error, 'allow_multiple_entries_per_day')
-      || isMissingColumnError(insertResult.error, 'sort_order')) {
+    if (isOptionalGoalColumnError(insertResult.error)) {
       insertResult = await client
         .from('goals')
-        .insert(withoutSortOrder(withoutAllowMultiple(withoutStartValue(withoutGoalType(goalPayload)))))
+        .insert(withoutAllOptionalGoalColumns(goalPayload))
         .select('id')
         .single();
     }
@@ -275,10 +352,7 @@ export async function upsertGoal(goal) {
     .select('id')
     .single();
 
-  if (isMissingColumnError(upsertResult.error, 'goal_type')
-    || isMissingColumnError(upsertResult.error, 'start_value')
-    || isMissingColumnError(upsertResult.error, 'allow_multiple_entries_per_day')
-    || isMissingColumnError(upsertResult.error, 'sort_order')) {
+  if (isOptionalGoalColumnError(upsertResult.error)) {
     const fallbackPayload = getGoalPayloadForMissingColumn(goalPayload, upsertResult.error);
     upsertResult = await client
       .from('goals')
@@ -286,14 +360,11 @@ export async function upsertGoal(goal) {
       .select('id')
       .single();
 
-    if (isMissingColumnError(upsertResult.error, 'goal_type')
-      || isMissingColumnError(upsertResult.error, 'start_value')
-      || isMissingColumnError(upsertResult.error, 'allow_multiple_entries_per_day')
-      || isMissingColumnError(upsertResult.error, 'sort_order')) {
+    if (isOptionalGoalColumnError(upsertResult.error)) {
       upsertResult = await client
         .from('goals')
         .upsert(
-          withoutSortOrder(withoutAllowMultiple(withoutStartValue(withoutGoalType(goalPayload)))),
+          withoutAllOptionalGoalColumns(goalPayload),
           { onConflict: 'id' },
         )
         .select('id')
@@ -353,29 +424,36 @@ export async function updateGoal(goalId, updates) {
     ...(updates.sortOrder !== undefined
       ? { sort_order: Number.isFinite(updates.sortOrder) ? updates.sortOrder : 0 }
       : {}),
+    ...(updates.vision !== undefined ? { vision: updates.vision.trim() } : {}),
+    ...(updates.quote !== undefined ? { quote: updates.quote.trim() } : {}),
   };
 
   if (Object.keys(goalUpdates).length > 0) {
     let result = await client.from('goals').update(goalUpdates).eq('id', goalId);
 
-    if (isMissingColumnError(result.error, 'goal_type')
-      || isMissingColumnError(result.error, 'start_value')
-      || isMissingColumnError(result.error, 'allow_multiple_entries_per_day')
-      || isMissingColumnError(result.error, 'sort_order')) {
+    if (isOptionalGoalColumnError(result.error)) {
       const fallbackUpdates = getGoalPayloadForMissingColumn(goalUpdates, result.error);
-      result = await client
-        .from('goals')
-        .update(fallbackUpdates)
-        .eq('id', goalId);
 
-      if (isMissingColumnError(result.error, 'goal_type')
-        || isMissingColumnError(result.error, 'start_value')
-        || isMissingColumnError(result.error, 'allow_multiple_entries_per_day')
-        || isMissingColumnError(result.error, 'sort_order')) {
+      if (Object.keys(fallbackUpdates).length > 0) {
         result = await client
           .from('goals')
-          .update(withoutSortOrder(withoutAllowMultiple(withoutStartValue(withoutGoalType(goalUpdates)))))
+          .update(fallbackUpdates)
           .eq('id', goalId);
+      } else {
+        result = { error: null };
+      }
+
+      if (isOptionalGoalColumnError(result.error)) {
+        const legacyUpdates = withoutAllOptionalGoalColumns(goalUpdates);
+
+        if (Object.keys(legacyUpdates).length > 0) {
+          result = await client
+            .from('goals')
+            .update(legacyUpdates)
+            .eq('id', goalId);
+        } else {
+          result = { error: null };
+        }
       }
     }
 

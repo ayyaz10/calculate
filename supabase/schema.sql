@@ -21,6 +21,8 @@ create table if not exists public.goals (
   deadline date,
   allow_multiple_entries_per_day boolean not null default false,
   sort_order integer not null default 0,
+  vision text not null default '',
+  quote text not null default '',
   created_at timestamptz not null default now()
 );
 
@@ -55,6 +57,12 @@ alter table public.goals
 
 alter table public.goals
   add column if not exists sort_order integer not null default 0;
+
+alter table public.goals
+  add column if not exists vision text not null default '';
+
+alter table public.goals
+  add column if not exists quote text not null default '';
 
 alter table public.entries
   add column if not exists completed boolean;
@@ -98,6 +106,37 @@ create table if not exists public.entry_values (
   value numeric not null,
   unique (entry_id, metric_id)
 );
+
+create table if not exists public.goal_journal_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  goal_id uuid not null references public.goals(id) on delete cascade,
+  entry_date date not null default current_date,
+  mood text not null default '',
+  content text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.goal_quotes (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  goal_id uuid not null references public.goals(id) on delete cascade,
+  content text not null,
+  is_pinned boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+insert into public.goal_quotes (user_id, goal_id, content, is_pinned, created_at, updated_at)
+select goals.user_id, goals.id, goals.quote, true, goals.created_at, now()
+from public.goals
+where trim(goals.quote) <> ''
+  and not exists (
+    select 1
+    from public.goal_quotes
+    where goal_quotes.goal_id = goals.id
+  );
 
 create table if not exists public.calculator_results (
   id uuid primary key default gen_random_uuid(),
@@ -167,6 +206,9 @@ create index if not exists goals_user_sort_idx on public.goals (user_id, sort_or
 create index if not exists metrics_goal_created_idx on public.metrics (goal_id, created_at asc);
 create index if not exists entries_user_goal_date_idx on public.entries (user_id, goal_id, date desc);
 create index if not exists entry_values_entry_idx on public.entry_values (entry_id);
+create index if not exists goal_journal_entries_user_goal_date_idx on public.goal_journal_entries (user_id, goal_id, entry_date desc, created_at desc);
+create index if not exists goal_quotes_user_goal_created_idx on public.goal_quotes (user_id, goal_id, created_at desc);
+create unique index if not exists goal_quotes_single_pinned_idx on public.goal_quotes (goal_id) where is_pinned;
 create index if not exists calculator_results_user_tool_created_idx on public.calculator_results (user_id, tool_id, created_at desc);
 create index if not exists crypto_futures_trades_user_type_created_idx on public.crypto_futures_trades (user_id, entry_type, created_at desc);
 create index if not exists crypto_futures_trades_user_symbol_created_idx on public.crypto_futures_trades (user_id, entry_type, asset_symbol, created_at desc);
@@ -178,6 +220,8 @@ alter table public.goals enable row level security;
 alter table public.metrics enable row level security;
 alter table public.entries enable row level security;
 alter table public.entry_values enable row level security;
+alter table public.goal_journal_entries enable row level security;
+alter table public.goal_quotes enable row level security;
 alter table public.calculator_results enable row level security;
 alter table public.crypto_futures_trades enable row level security;
 alter table public.user_tool_preferences enable row level security;
@@ -385,6 +429,66 @@ create policy "entry_values_delete_own" on public.entry_values
         and entries.user_id = auth.uid()
     )
   );
+
+drop policy if exists "goal_journal_entries_select_own" on public.goal_journal_entries;
+create policy "goal_journal_entries_select_own" on public.goal_journal_entries
+  for select using (user_id = auth.uid());
+
+drop policy if exists "goal_journal_entries_insert_own" on public.goal_journal_entries;
+create policy "goal_journal_entries_insert_own" on public.goal_journal_entries
+  for insert with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.goals
+      where goals.id = goal_journal_entries.goal_id
+        and goals.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "goal_journal_entries_update_own" on public.goal_journal_entries;
+create policy "goal_journal_entries_update_own" on public.goal_journal_entries
+  for update using (user_id = auth.uid()) with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.goals
+      where goals.id = goal_journal_entries.goal_id
+        and goals.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "goal_journal_entries_delete_own" on public.goal_journal_entries;
+create policy "goal_journal_entries_delete_own" on public.goal_journal_entries
+  for delete using (user_id = auth.uid());
+
+drop policy if exists "goal_quotes_select_own" on public.goal_quotes;
+create policy "goal_quotes_select_own" on public.goal_quotes
+  for select using (user_id = auth.uid());
+
+drop policy if exists "goal_quotes_insert_own" on public.goal_quotes;
+create policy "goal_quotes_insert_own" on public.goal_quotes
+  for insert with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.goals
+      where goals.id = goal_quotes.goal_id
+        and goals.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "goal_quotes_update_own" on public.goal_quotes;
+create policy "goal_quotes_update_own" on public.goal_quotes
+  for update using (user_id = auth.uid()) with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.goals
+      where goals.id = goal_quotes.goal_id
+        and goals.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "goal_quotes_delete_own" on public.goal_quotes;
+create policy "goal_quotes_delete_own" on public.goal_quotes
+  for delete using (user_id = auth.uid());
 
 drop policy if exists "calculator_results_select_own" on public.calculator_results;
 create policy "calculator_results_select_own" on public.calculator_results
